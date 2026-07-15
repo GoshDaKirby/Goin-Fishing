@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { X, Coins, Worm, Anchor, Lock, Fish, Banknote, Building, Zap, RotateCcw } from 'lucide-react';
-import { RODS, PERMITS, BAIT_PACK_COST, BAIT_PACK_SIZE, CAGE_TRAP_COST, CAGE_TRAP_SLOTS, BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES } from '@/game/gameConfig';
+import { X, Coins, Worm, Anchor, Lock, Fish, Banknote, Building, Zap, RotateCcw, Target, Wind, Waves as WavesIcon, Bot } from 'lucide-react';
+import { RODS, PERMITS, BAIT_PACK_COST, BAIT_PACK_SIZE, CAGE_TRAP_COST, CAGE_TRAP_SLOTS, BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES, MINIGAME_ITEMS, AUTO_FISH_COST } from '@/game/gameConfig';
 
 function ShopItem({ icon, title, desc, cost, owned, locked, canAfford, onBuy, actionLabel }) {
   return (
@@ -82,7 +82,7 @@ export default function Shop({ state, actions, onClose }) {
                 key={rod.id}
                 icon={<Fish size={16} />}
                 title={rod.name}
-                desc={`${rod.catchInterval / 1000}s per catch · ${rod.inventoryCap} inventory slots`}
+                desc={`~${(rod.biteWait / 1000).toFixed(1)}s avg. bite wait · ${rod.inventoryCap} inventory slots`}
                 cost={rod.cost}
                 owned={i <= state.rodTier}
                 locked={i > state.rodTier + 1}
@@ -185,6 +185,66 @@ export default function Shop({ state, actions, onClose }) {
               World-Class Museum — Maximum tier!
             </div>
           )}
+        </div>
+
+        {/* Fishing Minigame */}
+        <div>
+          <h3 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-2">Fishing Minigame</h3>
+          <div className="space-y-2">
+            <ShopItem
+              icon={<Target size={16} />}
+              title={MINIGAME_ITEMS.bigZone.name}
+              desc={MINIGAME_ITEMS.bigZone.desc}
+              cost={MINIGAME_ITEMS.bigZone.cost}
+              owned={state.minigameItems.bigZone}
+              canAfford={state.currency >= MINIGAME_ITEMS.bigZone.cost}
+              onBuy={() => actions.buyMinigameItem('bigZone')}
+            />
+            <ShopItem
+              icon={<WavesIcon size={16} />}
+              title={MINIGAME_ITEMS.calmingBait.name}
+              desc={MINIGAME_ITEMS.calmingBait.desc}
+              cost={MINIGAME_ITEMS.calmingBait.cost}
+              owned={state.minigameItems.calmingBait}
+              canAfford={state.currency >= MINIGAME_ITEMS.calmingBait.cost}
+              onBuy={() => actions.buyMinigameItem('calmingBait')}
+            />
+            <ShopItem
+              icon={<Wind size={16} />}
+              title={MINIGAME_ITEMS.tightBounds.name}
+              desc={MINIGAME_ITEMS.tightBounds.desc}
+              cost={MINIGAME_ITEMS.tightBounds.cost}
+              owned={state.minigameItems.tightBounds}
+              canAfford={state.currency >= MINIGAME_ITEMS.tightBounds.cost}
+              onBuy={() => actions.buyMinigameItem('tightBounds')}
+            />
+            {!state.autoFishUnlocked ? (
+              <ShopItem
+                icon={<Bot size={16} />}
+                title="Auto-Fish"
+                desc="Automatically resolves every catch without playing the minigame. Requires all three upgrades above."
+                cost={AUTO_FISH_COST}
+                owned={false}
+                locked={!Object.values(state.minigameItems).every(Boolean)}
+                canAfford={state.currency >= AUTO_FISH_COST}
+                onBuy={actions.buyAutoFish}
+                actionLabel="Unlock"
+              />
+            ) : (
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bot size={16} className="text-emerald-400" />
+                  <span className="text-white text-sm font-medium">Auto-Fish</span>
+                </div>
+                <button
+                  onClick={actions.toggleAutoFish}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${state.autoFishEnabled ? 'bg-emerald-500' : 'bg-white/20'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${state.autoFishEnabled ? 'left-5' : 'left-0.5'}`} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Reset */}

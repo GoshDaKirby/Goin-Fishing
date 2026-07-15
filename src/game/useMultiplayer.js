@@ -1,187 +1,152 @@
-const db = globalThis.__B44_DB__ || { auth:{ isAuthenticated: async()=>false, me: async()=>null }, entities:new Proxy({}, { get:()=>({ filter:async()=>[], get:async()=>null, create:async()=>({}), update:async()=>({}), delete:async()=>({}) }) }), integrations:{ Core:{ UploadFile:async()=>({ file_url:'' }) } } };
-
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 
-const STALE_TIMEOUT = 15000;
+const NICKNAME_KEY = 'goin-fishing-nickname';
+const DEVICE_ID_KEY = 'goin-fishing-device-id';
+const MAX_CHAT_MESSAGES = 60;
 
+function randomId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function slugifyWorld(name) {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'world';
+}
+
+function getOrCreateDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = randomId();
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch (e) {
+    return randomId();
+  }
+}
+
+// Multiplayer runs entirely on Supabase Realtime: player positions/nametags
+// use "Presence" (ephemeral per-connection state on a channel, no database
+// table needed - players just disappear automatically when they disconnect),
+// and chat uses "Broadcast" (fire-and-forget messages to everyone else on
+// the same channel, also not persisted anywhere). No sign-in is required for
+// any of this; each device just gets a stable local ID + an editable
+// nickname stored in localStorage.
 export function useMultiplayer(user) {
-  const [currentWorld, setCurrentWorld] = useState(null);
-  const [otherPlayers, setOtherPlayers] = useState([]);
-  const [availableWorlds, setAvailableWorlds] = useState([]);
+  const [nickname, setNicknameState] = useState(() => {
+    try {
+      return localStorage.getItem(NICKNAME_KEY) || `Angler${Math.floor(Math.random() * 9000 + 1000)}`;
+    } catch (e) { return 'Angler'; }
+  });
+  const [worldCode, setWorldCode] = useState(null);
   const [inWorld, setInWorld] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [otherPlayers, setOtherPlayers] = useState([]);
+  const [chatMessages, setChatMessages] = useState([]);
 
-  const myPlayerIdRef = useRef(null);
-  const worldIdRef = useRef(null);
-  const unsubscribeRef = useRef(null);
-  const pollRef = useRef(null);
-  const heartbeatRef = useRef(null);
+  const channelRef = useRef(null);
+  const myIdRef = useRef(getOrCreateDeviceId());
+  const presenceDataRef = useRef({ player_name: nickname, location: 'shore', is_fishing: false, character_x: 0, character_z: 0, character_rot: 0 });
 
-  const fetchPlayers = useCallback(async () => {
-    const wid = worldIdRef.current;
-    if (!wid) return;
-    try {
-      const players = await db.entities.WorldPlayer.filter({ world_id: wid });
-      const now = Date.now();
-      const active = (players || []).filter(p => {
-        if (p.id === myPlayerIdRef.current) return false;
-        if (!p.last_seen) return false;
-        return now - new Date(p.last_seen).getTime() < STALE_TIMEOUT;
-      });
-      setOtherPlayers(active);
-    } catch (e) { /* ignore */ }
+  const setNickname = useCallback((name) => {
+    const trimmed = (name || '').trim().slice(0, 16) || 'Angler';
+    setNicknameState(trimmed);
+    try { localStorage.setItem(NICKNAME_KEY, trimmed); } catch (e) { /* ignore */ }
+    presenceDataRef.current = { ...presenceDataRef.current, player_name: trimmed };
+    if (channelRef.current) channelRef.current.track(presenceDataRef.current);
   }, []);
 
-  const subscribeToWorld = useCallback((wid) => {
-    if (unsubscribeRef.current) unsubscribeRef.current();
-    worldIdRef.current = wid;
-    fetchPlayers();
-    unsubscribeRef.current = db.entities.WorldPlayer.subscribe(() => fetchPlayers());
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(fetchPlayers, 5000);
-  }, [fetchPlayers]);
-
-  const refreshWorlds = useCallback(async () => {
-    try {
-      const [worlds, players] = await Promise.all([
-        db.entities.World.filter({ status: 'active' }, '-created_date', 20),
-        db.entities.WorldPlayer.filter({}, '-created_date', 100),
-      ]);
-      const now = Date.now();
-      const counts = {};
-      (players || []).forEach(p => {
-        if (p.last_seen && now - new Date(p.last_seen).getTime() < STALE_TIMEOUT) {
-          counts[p.world_id] = (counts[p.world_id] || 0) + 1;
-        }
-      });
-      (worlds || []).forEach(w => {
-        if (!counts[w.id]) db.entities.World.delete(w.id).catch(() => {});
-      });
-      setAvailableWorlds((worlds || []).filter(w => counts[w.id]).map(w => ({ ...w, player_count: counts[w.id] })));
-    } catch (e) { /* ignore */ }
-  }, []);
-
-  const hostWorld = useCallback(async (name) => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const displayName = user.full_name || user.email || 'Player';
-      const world = await db.entities.World.create({
-        name: name || `${displayName}'s World`,
-        host_name: displayName,
-        status: 'active',
-        max_players: 8,
-      });
-      const player = await db.entities.WorldPlayer.create({
-        world_id: world.id,
-        player_name: displayName,
-        location: 'shore',
-        is_fishing: false,
-        character_x: 0,
-        character_z: 0,
-        character_rot: 0,
-        last_seen: new Date().toISOString(),
-      });
-      myPlayerIdRef.current = player.id;
-      setCurrentWorld(world);
-      setInWorld(true);
-      subscribeToWorld(world.id);
-    } catch (e) {
-      console.error('Failed to host world:', e);
-    } finally {
-      setLoading(false);
+  const syncOtherPlayers = useCallback(() => {
+    const channel = channelRef.current;
+    if (!channel) return;
+    const state = channel.presenceState();
+    const list = [];
+    for (const key of Object.keys(state)) {
+      if (key === myIdRef.current) continue;
+      const entries = state[key];
+      if (entries && entries[0]) list.push({ id: key, ...entries[0] });
     }
-  }, [user, subscribeToWorld]);
-
-  const joinWorld = useCallback(async (worldId) => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const world = availableWorlds.find(w => w.id === worldId);
-      if (!world) return;
-      const displayName = user.full_name || user.email || 'Player';
-      const player = await db.entities.WorldPlayer.create({
-        world_id: worldId,
-        player_name: displayName,
-        location: 'shore',
-        is_fishing: false,
-        character_x: 0,
-        character_z: 0,
-        character_rot: 0,
-        last_seen: new Date().toISOString(),
-      });
-      myPlayerIdRef.current = player.id;
-      setCurrentWorld(world);
-      setInWorld(true);
-      subscribeToWorld(worldId);
-    } catch (e) {
-      console.error('Failed to join world:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [user, availableWorlds, subscribeToWorld]);
-
-  const updatePresence = useCallback((data) => {
-    if (!myPlayerIdRef.current) return;
-    db.entities.WorldPlayer.update(myPlayerIdRef.current, {
-      ...data,
-      last_seen: new Date().toISOString(),
-    }).catch(() => {});
+    setOtherPlayers(list);
   }, []);
 
   const leaveWorld = useCallback(async () => {
-    if (unsubscribeRef.current) { unsubscribeRef.current(); unsubscribeRef.current = null; }
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
-    const worldId = worldIdRef.current;
-    if (myPlayerIdRef.current) {
-      try { await db.entities.WorldPlayer.delete(myPlayerIdRef.current); } catch (e) { /* ignore */ }
+    const channel = channelRef.current;
+    if (channel) {
+      await channel.untrack();
+      supabase.removeChannel(channel);
+      channelRef.current = null;
     }
-    if (worldId) {
-      try {
-        const remaining = await db.entities.WorldPlayer.filter({ world_id: worldId });
-        const now = Date.now();
-        const activeCount = (remaining || []).filter(p => p.last_seen && now - new Date(p.last_seen).getTime() < STALE_TIMEOUT).length;
-        if (activeCount === 0) await db.entities.World.delete(worldId);
-      } catch (e) { /* ignore */ }
-    }
-    myPlayerIdRef.current = null;
-    worldIdRef.current = null;
-    setCurrentWorld(null);
     setInWorld(false);
+    setWorldCode(null);
     setOtherPlayers([]);
+    setChatMessages([]);
   }, []);
 
-  // Heartbeat
-  useEffect(() => {
-    if (!inWorld) return;
-    heartbeatRef.current = setInterval(() => {
-      updatePresence({ last_seen: new Date().toISOString() });
-    }, 5000);
-    return () => { if (heartbeatRef.current) clearInterval(heartbeatRef.current); };
-  }, [inWorld, updatePresence]);
+  const enterWorld = useCallback(async (rawCode) => {
+    if (!isSupabaseConfigured) return;
+    const code = slugifyWorld(rawCode || 'lobby');
+    setLoading(true);
+    if (channelRef.current) await leaveWorld();
 
-  // Cleanup on unmount / tab close
+    const channel = supabase.channel(`world:${code}`, {
+      config: { presence: { key: myIdRef.current } },
+    });
+
+    channel.on('presence', { event: 'sync' }, syncOtherPlayers);
+    channel.on('presence', { event: 'join' }, syncOtherPlayers);
+    channel.on('presence', { event: 'leave' }, syncOtherPlayers);
+    channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
+      setChatMessages(prev => [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]);
+    });
+
+    channel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await channel.track(presenceDataRef.current);
+        setInWorld(true);
+        setWorldCode(code);
+        setLoading(false);
+      }
+    });
+
+    channelRef.current = channel;
+  }, [leaveWorld, syncOtherPlayers]);
+
+  const updatePresence = useCallback((data) => {
+    presenceDataRef.current = { ...presenceDataRef.current, ...data };
+    if (channelRef.current && inWorld) {
+      channelRef.current.track(presenceDataRef.current);
+    }
+  }, [inWorld]);
+
+  const sendChatMessage = useCallback((text) => {
+    const trimmed = (text || '').trim().slice(0, 200);
+    if (!trimmed || !channelRef.current) return;
+    const payload = { id: randomId(), name: presenceDataRef.current.player_name, text: trimmed, at: Date.now() };
+    channelRef.current.send({ type: 'broadcast', event: 'chat', payload });
+    setChatMessages(prev => [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]);
+  }, []);
+
+  // Clean up on unmount / tab close.
   useEffect(() => {
     const handleUnload = () => {
-      if (myPlayerIdRef.current) {
-        db.entities.WorldPlayer.delete(myPlayerIdRef.current).catch(() => {});
+      if (channelRef.current) {
+        channelRef.current.untrack();
+        supabase.removeChannel(channelRef.current);
       }
     };
     window.addEventListener('beforeunload', handleUnload);
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
-      if (unsubscribeRef.current) unsubscribeRef.current();
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-      if (myPlayerIdRef.current) {
-        db.entities.WorldPlayer.delete(myPlayerIdRef.current).catch(() => {});
-      }
+      handleUnload();
     };
   }, []);
 
   return {
-    currentWorld, otherPlayers, availableWorlds, inWorld, loading,
-    refreshWorlds, hostWorld, joinWorld, leaveWorld, updatePresence,
+    nickname, setNickname,
+    worldCode, inWorld, loading,
+    otherPlayers, chatMessages,
+    enterWorld, leaveWorld, updatePresence, sendChatMessage,
+    isSupabaseConfigured,
   };
 }

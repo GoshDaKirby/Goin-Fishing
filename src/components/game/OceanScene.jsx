@@ -40,7 +40,7 @@ function createNameLabel(text) {
   return { sprite, texture, material };
 }
 
-export default function OceanScene({ location, fishingActive, otherPlayers, onCharacterPlaced }) {
+export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced }) {
   const mountRef = useRef(null);
   const spotRef = useRef(null);
   const otherPlayersRef = useRef([]);
@@ -201,7 +201,7 @@ export default function OceanScene({ location, fishingActive, otherPlayers, onCh
     let bobber = null;
     let lineGeo = null;
     let line = null;
-    if (fishingActive) {
+    if (castPhase === 'waiting' || castPhase === 'biting') {
       const bobX = spot[0] + Math.sin(spot[3]) * 2.5;
       const bobZ = spot[2] + Math.cos(spot[3]) * 2.5;
       const rodTipX = spot[0] + Math.sin(spot[3]) * 0.6;
@@ -275,7 +275,11 @@ export default function OceanScene({ location, fishingActive, otherPlayers, onCh
       });
 
       if (bobber) {
-        bobber.position.y = Math.sin(t * 3) * 0.12 + Math.sin(t * 0.5) * 0.08;
+        if (castPhase === 'biting') {
+          bobber.position.y = Math.sin(t * 14) * 0.22;
+        } else {
+          bobber.position.y = Math.sin(t * 3) * 0.12 + Math.sin(t * 0.5) * 0.08;
+        }
       }
 
       character.rotation.z = Math.sin(t * 0.8) * 0.03;
@@ -351,7 +355,7 @@ export default function OceanScene({ location, fishingActive, otherPlayers, onCh
       }
       renderer.dispose();
     };
-  }, [location, fishingActive]);
+  }, [location, castPhase]);
 
   return <div ref={mountRef} className="absolute inset-0" style={{ touchAction: 'none' }} />;
 }

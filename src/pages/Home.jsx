@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, ShoppingBag, Banknote, BookOpen, Zap, Waves, Coins, Worm, Globe } from 'lucide-react';
+import { Package, ShoppingBag, Banknote, BookOpen, Zap, Waves, Coins, Worm, Globe, UserCircle2, X, Fish } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useMultiplayer } from '@/game/useMultiplayer';
+import { useCloudSave } from '@/game/useCloudSave';
 import MultiplayerPanel from '@/components/game/MultiplayerPanel';
+import ChatPanel from '@/components/game/ChatPanel';
+import AccountPanel from '@/components/game/AccountPanel';
+import FishingMinigame from '@/components/game/FishingMinigame';
 import { useGameState } from '@/game/useGameState';
-import { RODS, getMuseumIncome } from '@/game/gameConfig';
+import { RODS } from '@/game/gameConfig';
+import { sfx } from '@/lib/soundEffects';
 import OceanScene from '@/components/game/OceanScene';
 import AquariumScene from '@/components/game/AquariumScene';
 import TopBar from '@/components/game/TopBar';
@@ -16,8 +21,9 @@ import CageTraps from '@/components/game/CageTraps';
 
 export default function Home() {
   const { state, actions } = useGameState();
-  const { user } = useAuth();
-  const multiplayer = useMultiplayer(user);
+  const auth = useAuth();
+  const cloudSave = useCloudSave(auth.user, state, actions);
+  const multiplayer = useMultiplayer();
   const [view, setView] = useState('fishing');
   const [activePanel, setActivePanel] = useState(null);
   const [catchFlash, setCatchFlash] = useState(null);
@@ -30,15 +36,18 @@ export default function Home() {
     return () => document.removeEventListener('setLocation', handler);
   }, [actions]);
 
-  // Catch flash notification
+  // Catch flash notification - driven directly off the fish that was just
+  // caught (or null on a failed catch), never inferred from array contents.
   useEffect(() => {
     if (state.lastCatchTime && state.lastCatchTime > 0) {
-      const fish = state.caughtInventory[state.caughtInventory.length - 1];
-      if (fish) {
-        setCatchFlash(fish);
-        const timer = setTimeout(() => setCatchFlash(null), 3000);
-        return () => clearTimeout(timer);
+      if (state.lastCaughtFish) {
+        setCatchFlash({ fish: state.lastCaughtFish, failed: false });
+        sfx.tick();
+      } else {
+        setCatchFlash({ fish: null, failed: true });
       }
+      const timer = setTimeout(() => setCatchFlash(null), 3000);
+      return () => clearTimeout(timer);
     }
   }, [state.lastCatchTime]);
 
@@ -51,8 +60,14 @@ export default function Home() {
     }
   }, [state.lastMuseumPayout]);
 
+  // Play a bite sound the instant a cast turns into a bite.
+  useEffect(() => {
+    if (state.castPhase === 'biting') sfx.bite();
+  }, [state.castPhase]);
+
   const rod = RODS[state.rodTier];
-  const fishingActive = state.bait > 0 && state.caughtInventory.length < rod.inventoryCap;
+  const inventoryFull = state.caughtInventory.length >= rod.inventoryCap;
+  const canCast = state.bait > 0 && !inventoryFull && state.castPhase === 'idle' && !(state.autoFishUnlocked && state.autoFishEnabled);
   const navItems = [
     { id: 'inventory', icon: Package, label: 'Catch', badge: state.caughtInventory.length },
     { id: 'shop', icon: ShoppingBag, label: 'Shop' },
@@ -69,8 +84,8 @@ export default function Home() {
   }, [updatePresence]);
 
   useEffect(() => {
-    updatePresence({ is_fishing: fishingActive });
-  }, [fishingActive, updatePresence]);
+    updatePresence({ is_fishing: state.castPhase !== 'idle' });
+  }, [state.castPhase, updatePresence]);
 
   useEffect(() => {
     updatePresence({ location: state.location });
@@ -80,7 +95,7 @@ export default function Home() {
     <div className="relative w-full h-screen overflow-hidden bg-slate-900 select-none">
       {/* 3D Scene */}
       {view === 'fishing' ? (
-        <OceanScene location={state.location} fishingActive={fishingActive} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} />
+        <OceanScene location={state.location} castPhase={state.castPhase} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} />
       ) : (
         <AquariumScene fish={state.fishBank} hasMuseum={state.hasMuseum} museumTier={state.museumTier} />
       )}
@@ -89,29 +104,54 @@ export default function Home() {
       <TopBar state={state} view={view} setView={setView} setActivePanel={setActivePanel} />
 
       {view === 'fishing' && (
-        <button
-          onClick={() => setActivePanel(activePanel === 'multiplayer' ? null : 'multiplayer')}
-          className={`absolute top-3 right-3 z-10 rounded-full px-3 py-1.5 text-xs font-medium border backdrop-blur-md transition-all flex items-center gap-1.5 ${
-            activePanel === 'multiplayer'
-              ? 'bg-purple-500/80 text-white border-white/20'
-              : multiplayer.inWorld
-                ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/30'
-                : 'bg-black/40 text-white/60 border-white/10 hover:text-white'
-          }`}
-        >
-          <Globe size={12} />
-          {multiplayer.inWorld ? `${multiplayer.otherPlayers.length + 1} online` : 'World'}
-        </button>
+        <div className="absolute top-3 right-3 z-10 flex gap-1.5">
+          <button
+            onClick={() => setActivePanel(activePanel === 'account' ? null : 'account')}
+            className={`rounded-full p-1.5 border backdrop-blur-md transition-all ${
+              activePanel === 'account' ? 'bg-cyan-500/80 text-white border-white/20' : 'bg-black/40 text-white/60 border-white/10 hover:text-white'
+            }`}
+            title="Account & Cloud Save"
+          >
+            <UserCircle2 size={14} />
+          </button>
+          <button
+            onClick={() => setActivePanel(activePanel === 'multiplayer' ? null : 'multiplayer')}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium border backdrop-blur-md transition-all flex items-center gap-1.5 ${
+              activePanel === 'multiplayer'
+                ? 'bg-purple-500/80 text-white border-white/20'
+                : multiplayer.inWorld
+                  ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/30'
+                  : 'bg-black/40 text-white/60 border-white/10 hover:text-white'
+            }`}
+          >
+            <Globe size={12} />
+            {multiplayer.inWorld ? `${multiplayer.otherPlayers.length + 1} online` : 'World'}
+          </button>
+        </div>
+      )}
+
+      {/* Fishing minigame overlay */}
+      {view === 'fishing' && state.castPhase === 'biting' && state.currentCatchFish && (
+        <FishingMinigame
+          fish={state.currentCatchFish}
+          minigameItems={state.minigameItems}
+          onResolve={actions.resolveCatch}
+          onUncast={actions.uncast}
+        />
       )}
 
       {/* Catch Flash */}
       {catchFlash && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-black/60 backdrop-blur-md rounded-full px-4 py-2 border border-white/10 animate-in fade-in slide-in-from-top duration-300">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full" style={{ backgroundColor: catchFlash.color, border: `1px solid ${catchFlash.color}` }} />
-            <span className="text-white text-sm font-medium">Caught a {catchFlash.variantName} {catchFlash.speciesName}!</span>
-            <span className="text-amber-300 text-xs">+{catchFlash.value}</span>
-          </div>
+          {catchFlash.failed ? (
+            <span className="text-white/70 text-sm font-medium">The fish got away...</span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full" style={{ backgroundColor: catchFlash.fish.color, border: `1px solid ${catchFlash.fish.color}` }} />
+              <span className="text-white text-sm font-medium">Caught a {catchFlash.fish.variantName} {catchFlash.fish.speciesName}!</span>
+              <span className="text-amber-300 text-xs">+{catchFlash.fish.value}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -126,19 +166,47 @@ export default function Home() {
         </div>
       )}
 
-      {/* Fishing Status */}
-      {view === 'fishing' && (
+      {/* Fishing Status / Cast controls */}
+      {view === 'fishing' && !(state.autoFishUnlocked && state.autoFishEnabled) && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+          {state.castPhase === 'idle' && (
+            <>
+              {!canCast && (
+                <div className="bg-red-500/80 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
+                  {state.bait === 0 ? <><Worm size={12} /> Out of bait!</> : <><Package size={12} /> Inventory full!</>}
+                </div>
+              )}
+              <button
+                onClick={() => { actions.cast(); sfx.cast(); }}
+                disabled={!canCast}
+                className={`flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-semibold transition-colors ${
+                  canCast ? 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-lg' : 'bg-white/10 text-white/30'
+                }`}
+              >
+                <Fish size={16} /> Cast Line
+              </button>
+            </>
+          )}
+          {state.castPhase === 'waiting' && (
+            <div className="flex flex-col items-center gap-2">
+              <div className="bg-black/40 backdrop-blur-md rounded-full px-4 py-1.5 text-white/80 text-xs font-medium flex items-center gap-1.5">
+                <Waves size={12} className="animate-pulse" /> Waiting for a bite...
+              </div>
+              <button
+                onClick={actions.uncast}
+                className="flex items-center gap-1.5 bg-red-600/70 hover:bg-red-500 text-white text-xs font-medium px-4 py-1.5 rounded-full transition-colors"
+              >
+                <X size={12} /> Uncast
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {view === 'fishing' && state.autoFishUnlocked && state.autoFishEnabled && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
-          {!fishingActive && (
-            <div className="bg-red-500/80 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
-              {state.bait === 0 ? <><Worm size={12} /> Out of bait!</> : <><Package size={12} /> Inventory full!</>}
-            </div>
-          )}
-          {fishingActive && (
-            <div className="bg-black/30 backdrop-blur-md rounded-full px-4 py-1.5 text-white/70 text-xs font-medium flex items-center gap-1.5">
-              <Waves size={12} className="animate-pulse" /> Fishing...
-            </div>
-          )}
+          <div className="bg-emerald-600/70 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
+            <Waves size={12} className="animate-pulse" /> Auto-fishing...
+          </div>
         </div>
       )}
 
@@ -167,7 +235,11 @@ export default function Home() {
       {activePanel === 'bank' && <FishBank state={state} actions={actions} onClose={() => setActivePanel(null)} />}
       {activePanel === 'encyclopedia' && <Encyclopedia state={state} onClose={() => setActivePanel(null)} />}
       {activePanel === 'traps' && <CageTraps state={state} actions={actions} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'multiplayer' && <MultiplayerPanel multiplayer={multiplayer} user={user} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'multiplayer' && <MultiplayerPanel multiplayer={multiplayer} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'account' && <AccountPanel auth={auth} cloudSave={cloudSave} onClose={() => setActivePanel(null)} />}
+
+      {/* Chat */}
+      {view === 'fishing' && <ChatPanel multiplayer={multiplayer} />}
 
       {/* Bottom Nav */}
       <div className="absolute bottom-0 left-0 right-0 z-20 px-3 pb-3 pt-2 bg-gradient-to-t from-black/60 to-transparent">

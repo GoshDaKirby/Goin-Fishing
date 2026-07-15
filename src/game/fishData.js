@@ -72,6 +72,16 @@ export const RARITY_BADGES = {
   legendary: { label: 'Legendary', color: '#fbbf24' },
 };
 
+// How far an individual catch's size can drift from the species' average
+// size (as a fraction, e.g. 0.35 = anywhere from 65% to 135% of average).
+export const SIZE_SPREAD = {
+  common: 0.30,
+  uncommon: 0.35,
+  rare: 0.40,
+  epic: 0.45,
+  legendary: 0.55,
+};
+
 export const ALL_SPECIES = [
   ...FISH_SPECIES.shore,
   ...FISH_SPECIES.rocks,
@@ -97,13 +107,29 @@ export function rollFish(location) {
     vr -= v.weight;
     if (vr <= 0) { variant = k; break; }
   }
-  const value = Math.round(species.baseValue * VARIANTS[variant].multiplier);
+
+  // Size variance: each individual catch rolls a size multiplier on a bell-ish
+  // curve (average of two rolls pulls results toward the middle, with rare
+  // extremes at both ends). Rarer fish have a slightly wider spread, since
+  // the trophy-sized outliers matter more for rarer species.
+  const spread = SIZE_SPREAD[species.rarity || 'common'] ?? SIZE_SPREAD.common;
+  const roll = (Math.random() + Math.random()) / 2; // 0..1, centered on 0.5
+  const sizeMultiplier = +(1 - spread + roll * spread * 2).toFixed(3);
+  const actualSize = +(species.size * sizeMultiplier).toFixed(3);
+
+  // Bigger fish sell for more, smaller fish sell for less. A fish at the
+  // average size multiplier (1.0) sells at the normal base/variant value;
+  // it scales roughly linearly off of that from there.
+  const sizeValueMultiplier = 0.4 + sizeMultiplier * 0.6;
+  const value = Math.round(species.baseValue * VARIANTS[variant].multiplier * sizeValueMultiplier);
+
   return {
     id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     species: species.id,
     speciesName: species.name,
     color: VARIANT_COLORS[variant] || species.color,
-    size: species.size,
+    size: actualSize,
+    sizeMultiplier,
     rarity: species.rarity || 'common',
     variant,
     variantName: VARIANTS[variant].name,
@@ -113,6 +139,15 @@ export function rollFish(location) {
     location,
     caughtAt: Date.now(),
   };
+}
+
+export function sizeLabel(sizeMultiplier) {
+  if (sizeMultiplier == null) return null;
+  if (sizeMultiplier >= 1.35) return 'Massive';
+  if (sizeMultiplier >= 1.15) return 'Large';
+  if (sizeMultiplier >= 0.85) return 'Average';
+  if (sizeMultiplier >= 0.65) return 'Small';
+  return 'Tiny';
 }
 
 export function fishMatchesFilters(fish, filters) {

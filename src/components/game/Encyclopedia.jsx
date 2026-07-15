@@ -58,6 +58,14 @@ export default function Encyclopedia({ state, onClose }) {
                     );
                   })}
                 </div>
+                {(state.encyclopedia[species.id]?.minSize != null) && (
+                  <div className="flex items-center justify-between mt-2 text-[10px] text-white/40">
+                    <span>
+                      Size range: {(state.encyclopedia[species.id].minSize * 100).toFixed(0)}%–{(state.encyclopedia[species.id].maxSize * 100).toFixed(0)}%
+                    </span>
+                    <span>Biggest sale: <span className="text-amber-300 font-semibold">{state.encyclopedia[species.id].biggestValue}</span></span>
+                  </div>
+                )}
               </div>
             ))}
           </div>

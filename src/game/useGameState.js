@@ -6,10 +6,11 @@ import {
   BAIT_PACK_COST, BAIT_PACK_SIZE, BANK_UPGRADES,
   MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
   STARTING_CURRENCY, STARTING_BAIT, MUSEUM_PAYOUT_INTERVAL,
+  MINIGAME_ITEMS, AUTO_FISH_COST,
   getMuseumIncome,
 } from './gameConfig';
 
-const STORAGE_KEY = 'lazy-fisherman-save-v1';
+const STORAGE_KEY = 'lazy-fisherman-save-v2';
 
 const defaultAutoSettings = {
   autoSell: {
@@ -23,6 +24,8 @@ const defaultAutoSettings = {
     rarities: { common: false, uncommon: false, rare: true, epic: true, legendary: true },
   },
 };
+
+const defaultMinigameItems = { bigZone: false, calmingBait: false, tightBounds: false };
 
 const initialState = {
   currency: STARTING_CURRENCY,
@@ -39,11 +42,21 @@ const initialState = {
   location: 'shore',
   encyclopedia: {},
   lastCatchTime: 0,
+  lastCaughtFish: null,
   lastMuseumIncome: 0,
   lastMuseumPayout: 0,
   totalEarned: 0,
   totalCaught: 0,
   autoSettings: defaultAutoSettings,
+
+  // Active fishing minigame state
+  castPhase: 'idle', // 'idle' | 'waiting' | 'biting'
+  castStartedAt: 0,
+  biteDeadline: 0,
+  currentCatchFish: null,
+  minigameItems: defaultMinigameItems,
+  autoFishUnlocked: false,
+  autoFishEnabled: false,
 };
 
 function loadState() {
@@ -54,6 +67,12 @@ function loadState() {
       return {
         ...initialState,
         ...parsed,
+        // Never resume mid-cast from a stale save; always come back to idle.
+        castPhase: 'idle',
+        castStartedAt: 0,
+        biteDeadline: 0,
+        currentCatchFish: null,
+        minigameItems: { ...defaultMinigameItems, ...(parsed.minigameItems || {}) },
         autoSettings: {
           autoSell: { ...defaultAutoSettings.autoSell, ...(parsed.autoSettings?.autoSell || {}), variants: { ...defaultAutoSettings.autoSell.variants, ...(parsed.autoSettings?.autoSell?.variants || {}) }, rarities: { ...defaultAutoSettings.autoSell.rarities, ...(parsed.autoSettings?.autoSell?.rarities || {}) } },
           autoBank: { ...defaultAutoSettings.autoBank, ...(parsed.autoSettings?.autoBank || {}), variants: { ...defaultAutoSettings.autoBank.variants, ...(parsed.autoSettings?.autoBank?.variants || {}) }, rarities: { ...defaultAutoSettings.autoBank.rarities, ...(parsed.autoSettings?.autoBank?.rarities || {}) } },
@@ -66,14 +85,61 @@ function loadState() {
 
 function updateEncyclopedia(encyclopedia, fish) {
   const entry = encyclopedia[fish.species] || {};
+  const prevMin = entry.minSize;
+  const prevMax = entry.maxSize;
   return {
     ...encyclopedia,
-    [fish.species]: { ...entry, [fish.variant]: true, discovered: true },
+    [fish.species]: {
+      ...entry,
+      [fish.variant]: true,
+      discovered: true,
+      minSize: prevMin == null ? fish.sizeMultiplier : Math.min(prevMin, fish.sizeMultiplier),
+      maxSize: prevMax == null ? fish.sizeMultiplier : Math.max(prevMax, fish.sizeMultiplier),
+      biggestValue: Math.max(entry.biggestValue || 0, fish.value),
+    },
   };
 }
 
 function randomTrapTime() {
   return Date.now() + CAGE_TRAP_MIN_TIME + Math.random() * (CAGE_TRAP_MAX_TIME - CAGE_TRAP_MIN_TIME);
+}
+
+// Places a rolled fish into auto-sell/auto-bank/inventory (in that priority
+// order), matching the old passive-fishing behavior. Always records
+// lastCaughtFish/lastCatchTime directly off the fish that was actually
+// caught, rather than inferring it from whatever happens to be at the end of
+// an array (that inference was the source of the old mislabeled catch popup).
+function depositCaughtFish(prev, fish, rod) {
+  const auto = prev.autoSettings;
+  const bankCap = BANK_UPGRADES[prev.bankTier - 1].capacity;
+  const enc = updateEncyclopedia(prev.encyclopedia, fish);
+  const base = {
+    encyclopedia: enc,
+    lastCatchTime: Date.now(),
+    lastCaughtFish: fish,
+    totalCaught: prev.totalCaught + 1,
+  };
+
+  if (auto.autoBank.enabled && fishMatchesFilters(fish, auto.autoBank) && prev.fishBank.length < bankCap) {
+    return { ...prev, ...base, fishBank: [...prev.fishBank, { ...fish, locked: false }] };
+  }
+
+  if (auto.autoSell.enabled && fishMatchesFilters(fish, auto.autoSell)) {
+    return { ...prev, ...base, currency: prev.currency + fish.value, totalEarned: prev.totalEarned + fish.value };
+  }
+
+  if (prev.caughtInventory.length < rod.inventoryCap) {
+    return { ...prev, ...base, caughtInventory: [...prev.caughtInventory, fish] };
+  }
+
+  // No room anywhere - the fish is lost, but we still show what it was.
+  return { ...prev, lastCatchTime: Date.now(), lastCaughtFish: fish };
+}
+
+function randomBiteWait(rod) {
+  // +/- 30% jitter around the rod's base bite-wait time so it doesn't feel
+  // like a metronome.
+  return rod.biteWait * (0.7 + Math.random() * 0.6);
 }
 
 export function useGameState() {
@@ -85,67 +151,43 @@ export function useGameState() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
   }, [state]);
 
-  // Auto-fishing timer
+  // Bite timer - watches for the moment a "waiting" cast should turn into a bite.
   useEffect(() => {
+    if (state.castPhase !== 'waiting') return;
+    const delay = Math.max(0, state.biteDeadline - Date.now());
+    const timer = setTimeout(() => {
+      setState(prev => {
+        if (prev.castPhase !== 'waiting') return prev;
+        const fish = rollFish(prev.location);
+        if (prev.permits.deepwater && prev.location === 'deep') {
+          fish.value = Math.round(fish.value * 1.5);
+        }
+        return { ...prev, castPhase: 'biting', currentCatchFish: fish };
+      });
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [state.castPhase, state.biteDeadline]);
+
+  // Auto-fish: only runs once unlocked (all three minigame assist items
+  // purchased) AND the player has turned it on. Fully bypasses the manual
+  // minigame, matching the original passive-fishing behavior.
+  useEffect(() => {
+    if (!state.autoFishUnlocked || !state.autoFishEnabled) return;
     const rod = RODS[state.rodTier];
     const timer = setInterval(() => {
-      const s = stateRef.current;
-      if (s.bait <= 0) return;
-
-      const fish = rollFish(s.location);
-      if (s.permits.deepwater && s.location === 'deep') {
-        fish.value = Math.round(fish.value * 1.5);
-      }
-
       setState(prev => {
+        if (!prev.autoFishUnlocked || !prev.autoFishEnabled) return prev;
         if (prev.bait <= 0) return prev;
-
-        const auto = prev.autoSettings;
-        const bankCap = BANK_UPGRADES[prev.bankTier - 1].capacity;
-        const enc = updateEncyclopedia(prev.encyclopedia, fish);
-
-        // Auto-bank first
-        if (auto.autoBank.enabled && fishMatchesFilters(fish, auto.autoBank) && prev.fishBank.length < bankCap) {
-          return {
-            ...prev,
-            bait: prev.bait - 1,
-            fishBank: [...prev.fishBank, { ...fish, locked: false }],
-            encyclopedia: enc,
-            lastCatchTime: Date.now(),
-            totalCaught: prev.totalCaught + 1,
-          };
+        if (prev.castPhase !== 'idle') return prev;
+        const fish = rollFish(prev.location);
+        if (prev.permits.deepwater && prev.location === 'deep') {
+          fish.value = Math.round(fish.value * 1.5);
         }
-
-        // Auto-sell
-        if (auto.autoSell.enabled && fishMatchesFilters(fish, auto.autoSell)) {
-          return {
-            ...prev,
-            bait: prev.bait - 1,
-            currency: prev.currency + fish.value,
-            totalEarned: prev.totalEarned + fish.value,
-            encyclopedia: enc,
-            lastCatchTime: Date.now(),
-            totalCaught: prev.totalCaught + 1,
-          };
-        }
-
-        // Inventory
-        if (prev.caughtInventory.length < rod.inventoryCap) {
-          return {
-            ...prev,
-            bait: prev.bait - 1,
-            caughtInventory: [...prev.caughtInventory, fish],
-            encyclopedia: enc,
-            lastCatchTime: Date.now(),
-            totalCaught: prev.totalCaught + 1,
-          };
-        }
-
-        return prev;
+        return depositCaughtFish({ ...prev, bait: prev.bait - 1 }, fish, RODS[prev.rodTier]);
       });
-    }, rod.catchInterval);
+    }, rod.biteWait);
     return () => clearInterval(timer);
-  }, [state.rodTier, state.location]);
+  }, [state.autoFishUnlocked, state.autoFishEnabled, state.rodTier, state.location]);
 
   // Cage trap timer
   useEffect(() => {
@@ -243,6 +285,7 @@ export function useGameState() {
           encyclopedia: updateEncyclopedia(prev.encyclopedia, fish),
           totalCaught: prev.totalCaught + 1,
           lastCatchTime: Date.now(),
+          lastCaughtFish: fish,
           cageTraps: prev.cageTraps.map(t => t.id === trapId ? { ...t, status: 'waiting', catchTime: randomTrapTime(), fish: null } : t),
         };
       });
@@ -264,8 +307,80 @@ export function useGameState() {
           encyclopedia: newFish.reduce((enc, f) => updateEncyclopedia(enc, f), prev.encyclopedia),
           totalCaught: prev.totalCaught + toCollect.length,
           lastCatchTime: Date.now(),
+          lastCaughtFish: newFish[newFish.length - 1],
           cageTraps: prev.cageTraps.map(t => collectIds.has(t.id) ? { ...t, status: 'waiting', catchTime: randomTrapTime(), fish: null } : t),
         };
+      });
+    }, []),
+
+    // --- Active fishing minigame ---
+    cast: useCallback(() => {
+      setState(prev => {
+        if (prev.castPhase !== 'idle') return prev;
+        if (prev.bait <= 0) return prev;
+        if (prev.caughtInventory.length >= RODS[prev.rodTier].inventoryCap) return prev;
+        const rod = RODS[prev.rodTier];
+        const now = Date.now();
+        return {
+          ...prev,
+          bait: prev.bait - 1,
+          castPhase: 'waiting',
+          castStartedAt: now,
+          biteDeadline: now + randomBiteWait(rod),
+          currentCatchFish: null,
+        };
+      });
+    }, []),
+
+    uncast: useCallback(() => {
+      setState(prev => {
+        if (prev.castPhase === 'idle') return prev;
+        // Refund bait only if the fish never actually bit yet.
+        const refund = prev.castPhase === 'waiting' ? 1 : 0;
+        return {
+          ...prev,
+          bait: prev.bait + refund,
+          castPhase: 'idle',
+          castStartedAt: 0,
+          biteDeadline: 0,
+          currentCatchFish: null,
+        };
+      });
+    }, []),
+
+    resolveCatch: useCallback((success) => {
+      setState(prev => {
+        if (prev.castPhase !== 'biting' || !prev.currentCatchFish) return prev;
+        const rod = RODS[prev.rodTier];
+        const fish = prev.currentCatchFish;
+        const cleared = { ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0, currentCatchFish: null };
+        if (!success) {
+          return { ...cleared, lastCatchTime: Date.now(), lastCaughtFish: null };
+        }
+        return depositCaughtFish(cleared, fish, rod);
+      });
+    }, []),
+
+    buyMinigameItem: useCallback((key) => {
+      setState(prev => {
+        const item = MINIGAME_ITEMS[key];
+        if (!item || prev.minigameItems[key] || prev.currency < item.cost) return prev;
+        return { ...prev, currency: prev.currency - item.cost, minigameItems: { ...prev.minigameItems, [key]: true } };
+      });
+    }, []),
+
+    buyAutoFish: useCallback(() => {
+      setState(prev => {
+        const allOwned = Object.keys(MINIGAME_ITEMS).every(k => prev.minigameItems[k]);
+        if (!allOwned || prev.autoFishUnlocked || prev.currency < AUTO_FISH_COST) return prev;
+        return { ...prev, currency: prev.currency - AUTO_FISH_COST, autoFishUnlocked: true };
+      });
+    }, []),
+
+    toggleAutoFish: useCallback(() => {
+      setState(prev => {
+        if (!prev.autoFishUnlocked) return prev;
+        return { ...prev, autoFishEnabled: !prev.autoFishEnabled };
       });
     }, []),
 
@@ -336,7 +451,7 @@ export function useGameState() {
     sellBankedFish: useCallback((fishId) => {
       setState(prev => {
         const fish = prev.fishBank.find(f => f.id === fishId);
-        if (!fish) return prev;
+        if (!fish || fish.locked) return prev;
         return {
           ...prev,
           currency: prev.currency + fish.value,
@@ -351,13 +466,20 @@ export function useGameState() {
         const rod = RODS[prev.rodTier];
         if (prev.caughtInventory.length >= rod.inventoryCap) return prev;
         const fish = prev.fishBank.find(f => f.id === fishId);
-        if (!fish) return prev;
+        if (!fish || fish.locked) return prev;
         return {
           ...prev,
           fishBank: prev.fishBank.filter(f => f.id !== fishId),
           caughtInventory: [...prev.caughtInventory, { ...fish, locked: false }],
         };
       });
+    }, []),
+
+    toggleBankLock: useCallback((fishId) => {
+      setState(prev => ({
+        ...prev,
+        fishBank: prev.fishBank.map(f => f.id === fishId ? { ...f, locked: !f.locked } : f),
+      }));
     }, []),
 
     toggleAutoEnabled: useCallback((category) => {
@@ -423,6 +545,19 @@ export function useGameState() {
     resetGame: useCallback(() => {
       localStorage.removeItem(STORAGE_KEY);
       setState({ ...initialState });
+    }, []),
+
+    // Used by cloud-save sync to overwrite local state wholesale.
+    loadFromCloud: useCallback((cloudState) => {
+      if (!cloudState || typeof cloudState !== 'object') return;
+      setState(prev => ({
+        ...initialState,
+        ...cloudState,
+        castPhase: 'idle',
+        castStartedAt: 0,
+        biteDeadline: 0,
+        currentCatchFish: null,
+      }));
     }, []),
   };
 

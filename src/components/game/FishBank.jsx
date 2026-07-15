@@ -1,8 +1,10 @@
-import { X, Banknote, Building, Coins, TrendingUp, Fish } from 'lucide-react';
+import { useState } from 'react';
+import { X, Banknote, Building, Coins, TrendingUp, Fish, Lock, Unlock, Check } from 'lucide-react';
 import { BANK_UPGRADES, MUSEUM_UPGRADES, MUSEUM_COST, getMuseumIncome } from '@/game/gameConfig';
-import { VARIANT_BADGES, RARITY_BADGES } from '@/game/fishData';
+import { VARIANT_BADGES, RARITY_BADGES, sizeLabel } from '@/game/fishData';
 
 export default function FishBank({ state, actions, onClose }) {
+  const [confirming, setConfirming] = useState(null); // { id, action }
   const cap = BANK_UPGRADES[state.bankTier - 1].capacity;
   const nextBank = BANK_UPGRADES[state.bankTier];
   const nextMuseum = MUSEUM_UPGRADES[state.museumTier];
@@ -85,7 +87,7 @@ export default function FishBank({ state, actions, onClose }) {
               state.currency >= nextBank.cost ? 'bg-cyan-600/80 hover:bg-cyan-500 text-white' : 'bg-white/5 text-white/30'
             }`}
           >
-            <span>Upgrade Bank → {nextBank.capacity} slots</span>
+            <span>Upgrade Bank → {nextBank.capacity.toLocaleString()} slots</span>
             <span className="flex items-center gap-1"><Coins size={12} />{nextBank.cost.toLocaleString()}</span>
           </button>
         )}
@@ -103,8 +105,10 @@ export default function FishBank({ state, actions, onClose }) {
               {state.fishBank.map(fish => {
                 const badge = VARIANT_BADGES[fish.variant];
                 const rarity = RARITY_BADGES[fish.rarity] || RARITY_BADGES.common;
+                const isConfirming = confirming?.id === fish.id;
+                const label = sizeLabel(fish.sizeMultiplier);
                 return (
-                  <div key={fish.id} className="bg-white/10 rounded-lg p-2">
+                  <div key={fish.id} className={`rounded-lg p-2 ${fish.locked ? 'bg-white/5 opacity-60' : 'bg-white/10'}`}>
                     <div className="flex items-center gap-2 mb-1.5">
                       <div className="w-7 h-7 rounded-md flex-shrink-0" style={{ backgroundColor: fish.color + '40', border: `2px solid ${fish.color}` }} />
                       <div className="min-w-0 flex-1">
@@ -112,14 +116,39 @@ export default function FishBank({ state, actions, onClose }) {
                         <div className="flex items-center gap-0.5 flex-wrap">
                           <span className="text-[8px] px-1 py-0.5 rounded-full font-medium" style={{ backgroundColor: rarity.color + '25', color: rarity.color }}>{rarity.label}</span>
                           <span className={`text-[8px] px-1 py-0.5 rounded-full font-medium ${badge.className}`}>{badge.label}</span>
-                          <span className="text-amber-300 text-[9px] font-semibold ml-0.5">{fish.value}</span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {label && <span className="text-white/40 text-[9px]">{label}</span>}
+                          <span className="text-amber-300 text-[9px] font-semibold">{fish.value}</span>
                         </div>
                       </div>
+                      <button
+                        onClick={() => actions.toggleBankLock(fish.id)}
+                        className={`p-1 rounded transition-colors flex-shrink-0 ${fish.locked ? 'text-amber-400' : 'text-white/30 hover:text-white/60'}`}
+                        title={fish.locked ? 'Unlock' : 'Lock'}
+                      >
+                        {fish.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                      </button>
                     </div>
-                    <div className="flex gap-1">
-                      <button onClick={() => actions.sellBankedFish(fish.id)} className="flex-1 bg-amber-600/70 hover:bg-amber-500 text-white text-[10px] py-1 rounded transition-colors">Sell</button>
-                      <button onClick={() => actions.sendBankedFishToInventory(fish.id)} className="flex-1 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[10px] py-1 rounded transition-colors">Return</button>
-                    </div>
+                    {!fish.locked && (
+                      isConfirming ? (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => { if (confirming.action === 'sell') actions.sellBankedFish(fish.id); else actions.sendBankedFishToInventory(fish.id); setConfirming(null); }}
+                            className="flex-1 flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-medium py-1 rounded transition-colors"
+                          >
+                            <Check size={10} /> Confirm
+                          </button>
+                          <button onClick={() => setConfirming(null)} className="px-2 bg-white/10 text-white/70 text-[10px] py-1 rounded">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1">
+                          <button onClick={() => setConfirming({ id: fish.id, action: 'sell' })} className="flex-1 bg-amber-600/70 hover:bg-amber-500 text-white text-[10px] py-1 rounded transition-colors">Sell</button>
+                          <button onClick={() => setConfirming({ id: fish.id, action: 'return' })} className="flex-1 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[10px] py-1 rounded transition-colors">Return</button>
+                        </div>
+                      )
+                    )}
+                    {fish.locked && <div className="text-[9px] text-amber-400/60 text-center">Locked</div>}
                   </div>
                 );
               })}

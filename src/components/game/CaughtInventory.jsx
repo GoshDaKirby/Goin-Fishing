@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Lock, Unlock, Coins, Banknote, Check, Package, Zap } from 'lucide-react';
 import { RODS } from '@/game/gameConfig';
-import { VARIANT_BADGES, RARITY_BADGES, VARIANTS, RARITIES } from '@/game/fishData';
+import { VARIANT_BADGES, RARITY_BADGES, VARIANTS, RARITIES, sizeLabel } from '@/game/fishData';
 
 function AutoSection({ title, settings, onToggleEnabled, onToggleFilter, color }) {
   return (
@@ -127,6 +127,7 @@ export default function CaughtInventory({ state, actions, onClose }) {
                       <div className="flex items-center gap-1 mt-0.5">
                         <Coins size={12} className="text-amber-400" />
                         <span className="text-amber-300 text-xs font-semibold">{fish.value}</span>
+                        {sizeLabel(fish.sizeMultiplier) && <span className="text-white/40 text-[10px]">· {sizeLabel(fish.sizeMultiplier)}</span>}
                       </div>
                     </div>
                     <button
