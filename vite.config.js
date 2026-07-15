@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   // IMPORTANT: change this to match your GitHub repo name, e.g. '/fish-game/'
   // Leave it as '/' only if this repo is your root goshdakirby.github.io site.
-  base: '/your-repo-name/',
+  base: '/Goin-Fishing/',
   resolve: {
     alias: {
       // The Base44 dev plugin used to resolve "@/..." imports automatically.
