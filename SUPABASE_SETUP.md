@@ -76,3 +76,12 @@ nothing password-related is ever stored in the code or the bundle.
 By default, Supabase requires email confirmation on sign-up (**Authentication -> Providers -> Email**).
 You can leave that on (players confirm via a link Supabase emails them) or turn it off for a
 frictionless "make up any email" experience - up to you.
+
+## Troubleshooting cloud save
+
+If "Push"/"Pull" in the Account panel don't seem to work, the panel now shows the actual error message
+Supabase returns (it used to only log to the browser console, which made failures invisible). Common ones:
+
+- `relation "saves" does not exist` - the SQL above was never run against this project. Run it in the SQL Editor.
+- `new row violates row-level security policy` - the RLS policy above wasn't created, or was created against the wrong table/column names.
+- `Failed to fetch` / network error - check `VITE_SUPABASE_URL` doesn't have a trailing path like `/rest/v1` on it; it should be just `https://xxxx.supabase.co`.
