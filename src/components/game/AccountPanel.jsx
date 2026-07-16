@@ -3,11 +3,12 @@ import { X, UserCircle2, Cloud, LogOut, CloudUpload, CloudDownload } from 'lucid
 
 export default function AccountPanel({ auth, cloudSave, onClose }) {
   const { user, isLoadingAuth, isSupabaseConfigured, authMessage, signUp, signIn, signOut } = auth;
-  const { cloudSave: saveRow, loadCloudSave, pushSave } = cloudSave;
+  const { cloudSave: saveRow, checking, loadCloudSave, pushSave } = cloudSave;
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pullMessage, setPullMessage] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,6 +16,12 @@ export default function AccountPanel({ auth, cloudSave, onClose }) {
     if (mode === 'signup') await signUp(email, password);
     else await signIn(email, password);
     setBusy(false);
+  };
+
+  const handlePull = async () => {
+    setPullMessage(null);
+    const fresh = await loadCloudSave();
+    setPullMessage(fresh?.data ? 'Loaded! Your cloud save is now active on this device.' : 'No cloud save found yet - push one from a device first.');
   };
 
   return (
@@ -57,14 +64,14 @@ export default function AccountPanel({ auth, cloudSave, onClose }) {
             >
               <CloudUpload size={14} /> Push this device's save to the cloud
             </button>
-            {saveRow?.data && (
-              <button
-                onClick={loadCloudSave}
-                className="w-full flex items-center justify-center gap-1.5 bg-amber-600/80 hover:bg-amber-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"
-              >
-                <CloudDownload size={14} /> Load cloud save onto this device
-              </button>
-            )}
+            <button
+              onClick={handlePull}
+              disabled={checking}
+              className="w-full flex items-center justify-center gap-1.5 bg-amber-600/80 hover:bg-amber-500 text-white text-sm font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <CloudDownload size={14} /> {checking ? 'Checking...' : 'Pull save from cloud'}
+            </button>
+            {pullMessage && <div className="text-white/50 text-xs text-center">{pullMessage}</div>}
             <button
               onClick={signOut}
               className="w-full flex items-center justify-center gap-1.5 bg-red-600/70 hover:bg-red-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"

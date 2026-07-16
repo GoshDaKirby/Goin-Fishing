@@ -28,6 +28,7 @@ export default function Home() {
   const [activePanel, setActivePanel] = useState(null);
   const [catchFlash, setCatchFlash] = useState(null);
   const [incomeFlash, setIncomeFlash] = useState(null);
+  const [chatBubbles, setChatBubbles] = useState({});
 
   // Location change listener
   useEffect(() => {
@@ -91,11 +92,27 @@ export default function Home() {
     updatePresence({ location: state.location });
   }, [state.location, updatePresence]);
 
+  // Show a brief speech-bubble above whoever just spoke (replaced instantly
+  // if they send another message before the previous one expires).
+  useEffect(() => {
+    if (multiplayer.chatMessages.length === 0) return;
+    const last = multiplayer.chatMessages[multiplayer.chatMessages.length - 1];
+    if (!last.senderId) return;
+    setChatBubbles(prev => ({ ...prev, [last.senderId]: { text: last.text, expiresAt: Date.now() + 4500 } }));
+  }, [multiplayer.chatMessages]);
+
+  // Keep our own fish bank/museum info available for other players who want
+  // to browse it (read-only - inventory is never shared).
+  const { updateOwnBank } = multiplayer;
+  useEffect(() => {
+    updateOwnBank({ nickname: multiplayer.nickname, fishBank: state.fishBank, hasMuseum: state.hasMuseum, museumTier: state.museumTier });
+  }, [state.fishBank, state.hasMuseum, state.museumTier, multiplayer.nickname, updateOwnBank]);
+
   return (
     <div className="relative w-full h-screen overflow-hidden bg-slate-900 select-none">
       {/* 3D Scene */}
       {view === 'fishing' ? (
-        <OceanScene location={state.location} castPhase={state.castPhase} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} />
+        <OceanScene location={state.location} castPhase={state.castPhase} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} nickname={multiplayer.nickname} myId={multiplayer.myId} chatBubbles={chatBubbles} />
       ) : (
         <AquariumScene fish={state.fishBank} hasMuseum={state.hasMuseum} museumTier={state.museumTier} />
       )}
@@ -168,7 +185,7 @@ export default function Home() {
 
       {/* Fishing Status / Cast controls */}
       {view === 'fishing' && !(state.autoFishUnlocked && state.autoFishEnabled) && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+        <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
           {state.castPhase === 'idle' && (
             <>
               {!canCast && (
@@ -203,7 +220,7 @@ export default function Home() {
         </div>
       )}
       {view === 'fishing' && state.autoFishUnlocked && state.autoFishEnabled && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10">
           <div className="bg-emerald-600/70 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
             <Waves size={12} className="animate-pulse" /> Auto-fishing...
           </div>
@@ -232,7 +249,7 @@ export default function Home() {
       {/* Active Panel */}
       {activePanel === 'inventory' && <CaughtInventory state={state} actions={actions} onClose={() => setActivePanel(null)} />}
       {activePanel === 'shop' && <Shop state={state} actions={actions} onClose={() => setActivePanel(null)} />}
-      {activePanel === 'bank' && <FishBank state={state} actions={actions} onClose={() => setActivePanel(null)} />}
+      {activePanel === 'bank' && <FishBank state={state} actions={actions} multiplayer={multiplayer} onClose={() => setActivePanel(null)} />}
       {activePanel === 'encyclopedia' && <Encyclopedia state={state} onClose={() => setActivePanel(null)} />}
       {activePanel === 'traps' && <CageTraps state={state} actions={actions} onClose={() => setActivePanel(null)} />}
       {activePanel === 'multiplayer' && <MultiplayerPanel multiplayer={multiplayer} onClose={() => setActivePanel(null)} />}
@@ -241,9 +258,9 @@ export default function Home() {
       {/* Chat */}
       {view === 'fishing' && <ChatPanel multiplayer={multiplayer} />}
 
-      {/* Bottom Nav */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 px-3 pb-3 pt-2 bg-gradient-to-t from-black/60 to-transparent">
-        <div className="flex items-center justify-center gap-2 max-w-lg mx-auto">
+      {/* Bottom Nav (left side on mobile so it's reachable and not covered by browser chrome; bottom bar on larger screens) */}
+      <div className="fixed left-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2 sm:absolute sm:left-0 sm:right-0 sm:bottom-0 sm:top-auto sm:translate-y-0 sm:flex-row sm:items-center sm:justify-center sm:gap-2 sm:px-3 sm:pb-3 sm:pt-2 sm:bg-gradient-to-t sm:from-black/60 sm:to-transparent">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-center sm:gap-2 sm:max-w-lg sm:mx-auto">
           {navItems.map(item => {
             const Icon = item.icon;
             return (

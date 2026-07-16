@@ -1,41 +1,58 @@
 import { useEffect, useRef, useState } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
-import fishingTrack from '@/assets/audio/LoopedFishing.wav';
+import fishingTrack from '@/assets/audio/LoopedFishing.mp3';
 
 // Persistent looping background music. Browsers block audio with sound from
 // autoplaying until the user has interacted with the page at least once, so
-// this listens for the first click/keydown/touch anywhere on the page and
-// starts playback then, rather than relying on the audio element's autoplay.
+// this listens for the first interaction anywhere on the page and starts
+// playback then, rather than relying on the audio element's autoplay.
+//
+// Important: listeners are only removed once playback has actually been
+// confirmed started (audio.play() resolved). Some mobile browsers (notably
+// several Android WebView/Chrome combinations) can reject the very first
+// play() attempt even after a real user gesture - e.g. while the file is
+// still buffering - and the old version removed its gesture listeners
+// immediately regardless of success, so it silently gave up forever. This
+// version keeps listening on every subsequent gesture until it actually
+// works.
 export default function BackgroundMusic({ volume = 0.4 }) {
   const audioRef = useRef(null);
   const [muted, setMuted] = useState(false);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     audio.volume = volume;
+    audio.muted = false;
 
     const tryPlay = () => {
-      audio.play().catch(() => {
-        // Still blocked (e.g. no gesture yet) - the listeners below will retry.
-      });
+      if (startedRef.current) return;
+      const p = audio.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => { startedRef.current = true; }).catch(() => {
+          // Still blocked - keep listening for the next gesture.
+        });
+      } else {
+        startedRef.current = true;
+      }
     };
 
     tryPlay();
 
-    const startOnInteraction = () => {
-      tryPlay();
-      window.removeEventListener('pointerdown', startOnInteraction);
-      window.removeEventListener('keydown', startOnInteraction);
-    };
+    const events = ['pointerdown', 'touchend', 'click', 'keydown'];
+    const handler = () => tryPlay();
+    events.forEach(evt => window.addEventListener(evt, handler, { passive: true }));
 
-    window.addEventListener('pointerdown', startOnInteraction);
-    window.addEventListener('keydown', startOnInteraction);
+    // Also retry once the file has actually buffered enough to play, in case
+    // the gesture happened before there was any data to play yet.
+    const onCanPlay = () => tryPlay();
+    audio.addEventListener('canplaythrough', onCanPlay);
 
     return () => {
-      window.removeEventListener('pointerdown', startOnInteraction);
-      window.removeEventListener('keydown', startOnInteraction);
+      events.forEach(evt => window.removeEventListener(evt, handler));
+      audio.removeEventListener('canplaythrough', onCanPlay);
     };
   }, [volume]);
 

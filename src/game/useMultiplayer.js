@@ -44,17 +44,25 @@ export function useMultiplayer(user) {
   const [loading, setLoading] = useState(false);
   const [otherPlayers, setOtherPlayers] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
+  const [viewedBank, setViewedBank] = useState(null);
+  const [bankLoading, setBankLoading] = useState(false);
 
   const channelRef = useRef(null);
   const myIdRef = useRef(getOrCreateDeviceId());
   const presenceDataRef = useRef({ player_name: nickname, location: 'shore', is_fishing: false, character_x: 0, character_z: 0, character_rot: 0 });
+  const bankDataRef = useRef({ nickname, fishBank: [], hasMuseum: false, museumTier: 1 });
 
   const setNickname = useCallback((name) => {
     const trimmed = (name || '').trim().slice(0, 16) || 'Angler';
     setNicknameState(trimmed);
     try { localStorage.setItem(NICKNAME_KEY, trimmed); } catch (e) { /* ignore */ }
     presenceDataRef.current = { ...presenceDataRef.current, player_name: trimmed };
+    bankDataRef.current = { ...bankDataRef.current, nickname: trimmed };
     if (channelRef.current) channelRef.current.track(presenceDataRef.current);
+  }, []);
+
+  const updateOwnBank = useCallback((payload) => {
+    bankDataRef.current = { ...bankDataRef.current, ...payload };
   }, []);
 
   const syncOtherPlayers = useCallback(() => {
@@ -90,14 +98,27 @@ export function useMultiplayer(user) {
     if (channelRef.current) await leaveWorld();
 
     const channel = supabase.channel(`world:${code}`, {
-      config: { presence: { key: myIdRef.current } },
+      config: { presence: { key: myIdRef.current }, broadcast: { self: true } },
     });
 
     channel.on('presence', { event: 'sync' }, syncOtherPlayers);
     channel.on('presence', { event: 'join' }, syncOtherPlayers);
     channel.on('presence', { event: 'leave' }, syncOtherPlayers);
     channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
-      setChatMessages(prev => [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]);
+      setChatMessages(prev => (prev.some(m => m.id === payload.id) ? prev : [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]));
+    });
+    channel.on('broadcast', { event: 'requestBank' }, ({ payload }) => {
+      if (payload.targetId !== myIdRef.current) return;
+      channel.send({
+        type: 'broadcast',
+        event: 'bankData',
+        payload: { requesterId: payload.requesterId, id: myIdRef.current, ...bankDataRef.current },
+      });
+    });
+    channel.on('broadcast', { event: 'bankData' }, ({ payload }) => {
+      if (payload.requesterId !== myIdRef.current) return;
+      setViewedBank(payload);
+      setBankLoading(false);
     });
 
     channel.subscribe(async (status) => {
@@ -122,10 +143,24 @@ export function useMultiplayer(user) {
   const sendChatMessage = useCallback((text) => {
     const trimmed = (text || '').trim().slice(0, 200);
     if (!trimmed || !channelRef.current) return;
-    const payload = { id: randomId(), name: presenceDataRef.current.player_name, text: trimmed, at: Date.now() };
+    const payload = { id: randomId(), senderId: myIdRef.current, name: presenceDataRef.current.player_name, text: trimmed, at: Date.now() };
     channelRef.current.send({ type: 'broadcast', event: 'chat', payload });
-    setChatMessages(prev => [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]);
   }, []);
+
+  const requestPlayerBank = useCallback((targetId) => {
+    if (!channelRef.current) return;
+    setBankLoading(true);
+    setViewedBank(null);
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'requestBank',
+      payload: { targetId, requesterId: myIdRef.current },
+    });
+    // Give up after a few seconds if nobody responds (e.g. they disconnected).
+    setTimeout(() => setBankLoading(loading => (loading ? false : loading)), 5000);
+  }, []);
+
+  const clearViewedBank = useCallback(() => setViewedBank(null), []);
 
   // Clean up on unmount / tab close.
   useEffect(() => {
@@ -147,6 +182,8 @@ export function useMultiplayer(user) {
     worldCode, inWorld, loading,
     otherPlayers, chatMessages,
     enterWorld, leaveWorld, updatePresence, sendChatMessage,
+    myId: myIdRef.current,
+    updateOwnBank, requestPlayerBank, viewedBank, bankLoading, clearViewedBank,
     isSupabaseConfigured,
   };
 }

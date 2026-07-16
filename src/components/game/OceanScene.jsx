@@ -19,7 +19,23 @@ const BOAT_SPOTS = [
 ];
 
 const GROUND_Y = { shore: 1.65, rocks: 1.0, deep: 1.2 };
+const WALK_BOUNDS = {
+  shore: { minX: -6, maxX: 6, minZ: -9, maxZ: 11 },
+  rocks: { minX: -5, maxX: 5, minZ: -4, maxZ: 4 },
+  deep: { minX: -6, maxX: 6, minZ: 0.5, maxZ: 8 },
+};
 const OTHER_SHIRTS = [0x9a3a7a, 0x7a9a3a, 0x3a9a7a, 0x9a7a3a, 0x7a3a9a, 0x3a7a3a];
+const MOVE_SPEED = 3.2;
+const BROADCAST_INTERVAL = 150; // ms
+
+// Simple deterministic string hash -> picks a stable (not random-every-reload)
+// spawn spot per player id, so players spread out across the available spots
+// instead of clumping from pure randomness.
+function hashToIndex(str, mod) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h % mod;
+}
 
 function createNameLabel(text) {
   const canvas = document.createElement('canvas');
@@ -40,13 +56,48 @@ function createNameLabel(text) {
   return { sprite, texture, material };
 }
 
-export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced }) {
+function createChatBubble(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 72;
+  const ctx = canvas.getContext('2d');
+  const trimmed = text.length > 42 ? text.slice(0, 39) + '...' : text;
+  ctx.font = '22px sans-serif';
+  const metrics = ctx.measureText(trimmed);
+  const boxW = Math.min(300, Math.max(60, metrics.width + 28));
+  const boxX = (canvas.width - boxW) / 2;
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.roundRect(boxX, 6, boxW, 44, 12);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2 - 8, 50);
+  ctx.lineTo(canvas.width / 2 + 8, 50);
+  ctx.lineTo(canvas.width / 2, 64);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = '22px sans-serif';
+  ctx.fillStyle = '#1a1a1a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(trimmed, canvas.width / 2, 28);
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.8, 0.4, 1);
+  return { sprite, texture, material };
+}
+
+export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced, nickname, myId, chatBubbles }) {
   const mountRef = useRef(null);
   const spotRef = useRef(null);
   const otherPlayersRef = useRef([]);
   otherPlayersRef.current = otherPlayers || [];
   const onCharacterPlacedRef = useRef(onCharacterPlaced);
   onCharacterPlacedRef.current = onCharacterPlaced;
+  const chatBubblesRef = useRef({});
+  chatBubblesRef.current = chatBubbles || {};
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -183,10 +234,13 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       }
     }
 
-    // Local character
+    // Local character - deterministic spot per device id so concurrent
+    // players tend to spread across the available spots instead of all
+    // rolling independent random picks (and colliding).
+    const spots = location === 'shore' ? SHORE_SPOTS : location === 'rocks' ? ROCK_SPOTS : BOAT_SPOTS;
     if (!spotRef.current || spotRef.current.loc !== location) {
-      const spots = location === 'shore' ? SHORE_SPOTS : location === 'rocks' ? ROCK_SPOTS : BOAT_SPOTS;
-      spotRef.current = { loc: location, spot: spots[Math.floor(Math.random() * spots.length)] };
+      const idx = myId ? hashToIndex(`${myId}:${location}`, spots.length) : Math.floor(Math.random() * spots.length);
+      spotRef.current = { loc: location, spot: spots[idx] };
     }
     const spot = spotRef.current.spot;
     const character = createCharacterGroup();
@@ -194,9 +248,53 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     character.rotation.y = spot[3];
     scene.add(character);
 
+    const groundY = GROUND_Y[location] || 1.65;
+    const bounds = WALK_BOUNDS[location] || WALK_BOUNDS.shore;
+
+    // Own nametag, visible to the local player too (mirrors what other
+    // players see above your head).
+    const ownLabel = createNameLabel(nickname || 'You');
+    ownLabel.sprite.position.set(spot[0], groundY + 1.7, spot[2]);
+    scene.add(ownLabel.sprite);
+
     if (onCharacterPlacedRef.current) {
       onCharacterPlacedRef.current(spot[0], spot[2], spot[3]);
     }
+
+    // --- Movement: click/tap-to-walk (mouse or touch) + arrow keys / WASD ---
+    const localPos = { x: spot[0], z: spot[2] };
+    let localRot = spot[3];
+    let moveTarget = null;
+    const keys = {};
+    const raycaster = new THREE.Raycaster();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -groundY);
+    const ndc = new THREE.Vector2();
+    const hitPoint = new THREE.Vector3();
+
+    const setTargetFromClient = (clientX, clientY) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      if (raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
+        moveTarget = {
+          x: Math.min(bounds.maxX, Math.max(bounds.minX, hitPoint.x)),
+          z: Math.min(bounds.maxZ, Math.max(bounds.minZ, hitPoint.z)),
+        };
+      }
+    };
+    const handlePointerDown = (e) => {
+      // Ignore multi-touch (pinch) gestures.
+      if (e.touches && e.touches.length > 1) return;
+      const point = e.touches ? e.touches[0] : e;
+      setTargetFromClient(point.clientX, point.clientY);
+    };
+    const handleKeyDown = (e) => { keys[e.key] = true; };
+    const handleKeyUp = (e) => { keys[e.key] = false; };
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('touchstart', handlePointerDown, { passive: true });
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     let bobber = null;
     let lineGeo = null;
@@ -241,15 +339,45 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     }
 
     // Multiplayer characters
-    const groundY = GROUND_Y[location] || 1.65;
     const otherChars = new Map();
+    // Chat bubbles above heads: 'local' key for the local player, otherwise player id.
+    const bubbles = new Map();
+
+    function syncBubble(id, position) {
+      const data = chatBubblesRef.current[id];
+      const now = Date.now();
+      const existing = bubbles.get(id);
+      if (data && data.expiresAt > now) {
+        if (!existing || existing.text !== data.text) {
+          if (existing) {
+            scene.remove(existing.sprite);
+            existing.texture.dispose();
+            existing.material.dispose();
+          }
+          const bubble = createChatBubble(data.text);
+          scene.add(bubble.sprite);
+          bubbles.set(id, { ...bubble, text: data.text });
+        }
+        const b = bubbles.get(id);
+        b.sprite.position.set(position.x, position.y + 0.55, position.z);
+      } else if (existing) {
+        scene.remove(existing.sprite);
+        existing.texture.dispose();
+        existing.material.dispose();
+        bubbles.delete(id);
+      }
+    }
 
     let animationId;
     const clock = new THREE.Clock();
+    let lastFrameTime = clock.getElapsedTime();
+    let sinceLastBroadcast = 0;
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
+      const dt = Math.min(0.1, t - lastFrameTime);
+      lastFrameTime = t;
 
       const positions = waterGeo.attributes.position.array;
       for (let i = 0; i < positions.length; i += 3) {
@@ -282,7 +410,43 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         }
       }
 
+      // --- Local movement ---
+      let dx = 0, dz = 0;
+      const left = keys['ArrowLeft'] || keys['a'] || keys['A'];
+      const right = keys['ArrowRight'] || keys['d'] || keys['D'];
+      const up = keys['ArrowUp'] || keys['w'] || keys['W'];
+      const down = keys['ArrowDown'] || keys['s'] || keys['S'];
+      if (left || right || up || down) {
+        moveTarget = null;
+        if (left) dx -= 1;
+        if (right) dx += 1;
+        if (up) dz -= 1;
+        if (down) dz += 1;
+      } else if (moveTarget) {
+        const tx = moveTarget.x - localPos.x;
+        const tz = moveTarget.z - localPos.z;
+        const dist = Math.hypot(tx, tz);
+        if (dist > 0.12) { dx = tx; dz = tz; } else { moveTarget = null; }
+      }
+      if (dx !== 0 || dz !== 0) {
+        const mag = Math.hypot(dx, dz) || 1;
+        localPos.x += (dx / mag) * MOVE_SPEED * dt;
+        localPos.z += (dz / mag) * MOVE_SPEED * dt;
+        localPos.x = Math.min(bounds.maxX, Math.max(bounds.minX, localPos.x));
+        localPos.z = Math.min(bounds.maxZ, Math.max(bounds.minZ, localPos.z));
+        localRot = Math.atan2(dx, dz);
+        character.position.set(localPos.x, groundY, localPos.z);
+        character.rotation.y = localRot;
+
+        sinceLastBroadcast += dt * 1000;
+        if (sinceLastBroadcast >= BROADCAST_INTERVAL && onCharacterPlacedRef.current) {
+          sinceLastBroadcast = 0;
+          onCharacterPlacedRef.current(localPos.x, localPos.z, localRot);
+        }
+      }
       character.rotation.z = Math.sin(t * 0.8) * 0.03;
+      ownLabel.sprite.position.set(localPos.x, groundY + 1.7, localPos.z);
+      syncBubble('local', { x: localPos.x, y: groundY + 1.7, z: localPos.z });
 
       // Update multiplayer characters
       const currentIds = new Set();
@@ -304,6 +468,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         entry.group.rotation.y = p.character_rot || 0;
         entry.group.rotation.z = Math.sin(t * 0.8 + px) * 0.03;
         entry.sprite.position.set(px, groundY + 1.7, pz);
+        syncBubble(p.id, { x: px, y: groundY + 1.7, z: pz });
       }
       for (const [id, entry] of otherChars) {
         if (!currentIds.has(id)) {
@@ -313,6 +478,8 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
           entry.texture.dispose();
           entry.material.dispose();
           otherChars.delete(id);
+          const b = bubbles.get(id);
+          if (b) { scene.remove(b.sprite); b.texture.dispose(); b.material.dispose(); bubbles.delete(id); }
         }
       }
 
@@ -338,7 +505,14 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     return () => {
       cancelAnimationFrame(animationId);
       window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('touchstart', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       disposeObject(character);
+      scene.remove(ownLabel.sprite);
+      ownLabel.texture.dispose();
+      ownLabel.material.dispose();
       decoFish.forEach(f => disposeObject(f));
       for (const [, entry] of otherChars) {
         scene.remove(entry.group);
@@ -348,6 +522,12 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         entry.material.dispose();
       }
       otherChars.clear();
+      for (const [, b] of bubbles) {
+        scene.remove(b.sprite);
+        b.texture.dispose();
+        b.material.dispose();
+      }
+      bubbles.clear();
       if (lineGeo) lineGeo.dispose();
       disposables.forEach(d => d.dispose());
       if (renderer.domElement.parentNode) {
@@ -355,7 +535,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       }
       renderer.dispose();
     };
-  }, [location, castPhase]);
+  }, [location, castPhase, myId]);
 
   return <div ref={mountRef} className="absolute inset-0" style={{ touchAction: 'none' }} />;
 }

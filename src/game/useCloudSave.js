@@ -30,9 +30,11 @@ export function useCloudSave(user, state, actions) {
     else setCloudSave(null);
   }, [user, fetchCloudSave]);
 
-  const loadCloudSave = useCallback(() => {
-    if (cloudSave?.data) actions.loadFromCloud(cloudSave.data);
-  }, [cloudSave, actions]);
+  const loadCloudSave = useCallback(async () => {
+    const fresh = await fetchCloudSave();
+    if (fresh?.data) actions.loadFromCloud(fresh.data);
+    return fresh;
+  }, [fetchCloudSave, actions]);
 
   const pushSave = useCallback(async (dataToSave) => {
     if (!isSupabaseConfigured || !user) return;
