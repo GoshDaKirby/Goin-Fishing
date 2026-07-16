@@ -3,12 +3,13 @@ import { X, UserCircle2, Cloud, LogOut, CloudUpload, CloudDownload } from 'lucid
 
 export default function AccountPanel({ auth, cloudSave, onClose }) {
   const { user, isLoadingAuth, isSupabaseConfigured, authMessage, signUp, signIn, signOut } = auth;
-  const { cloudSave: saveRow, checking, loadCloudSave, pushSave } = cloudSave;
+  const { cloudSave: saveRow, checking, pushStatus, loadCloudSave, pushCurrentSave } = cloudSave;
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [pullMessage, setPullMessage] = useState(null);
+  const [pushing, setPushing] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -16,6 +17,12 @@ export default function AccountPanel({ auth, cloudSave, onClose }) {
     if (mode === 'signup') await signUp(email, password);
     else await signIn(email, password);
     setBusy(false);
+  };
+
+  const handlePush = async () => {
+    setPushing(true);
+    await pushCurrentSave();
+    setPushing(false);
   };
 
   const handlePull = async () => {
@@ -58,12 +65,17 @@ export default function AccountPanel({ auth, cloudSave, onClose }) {
                 <div className="text-white/30 text-[10px] mt-1">Last synced: {new Date(saveRow.updated_at).toLocaleString()}</div>
               )}
             </div>
+            <p className="text-white/30 text-[10px]">Your save also auto-syncs to the cloud every 15 seconds while you're signed in and playing.</p>
             <button
-              onClick={() => pushSave(JSON.parse(localStorage.getItem('lazy-fisherman-save-v2') || '{}'))}
-              className="w-full flex items-center justify-center gap-1.5 bg-cyan-600/80 hover:bg-cyan-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              onClick={handlePush}
+              disabled={pushing}
+              className="w-full flex items-center justify-center gap-1.5 bg-cyan-600/80 hover:bg-cyan-500 text-white text-sm font-medium py-2 rounded-lg transition-colors disabled:opacity-50"
             >
-              <CloudUpload size={14} /> Push this device's save to the cloud
+              <CloudUpload size={14} /> {pushing ? 'Pushing...' : "Push this device's save to the cloud"}
             </button>
+            {pushStatus && (
+              <div className={`text-xs text-center ${pushStatus.ok ? 'text-emerald-300' : 'text-red-300'}`}>{pushStatus.message}</div>
+            )}
             <button
               onClick={handlePull}
               disabled={checking}

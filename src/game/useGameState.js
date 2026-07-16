@@ -6,7 +6,7 @@ import {
   BAIT_PACK_COST, BAIT_PACK_SIZE, BANK_UPGRADES,
   MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
   STARTING_CURRENCY, STARTING_BAIT, MUSEUM_PAYOUT_INTERVAL,
-  MINIGAME_ITEMS, AUTO_FISH_COST,
+  MINIGAME_ITEMS,
   getMuseumIncome,
 } from './gameConfig';
 
@@ -25,7 +25,7 @@ const defaultAutoSettings = {
   },
 };
 
-const defaultMinigameItems = { bigZone: false, calmingBait: false, tightBounds: false };
+const defaultMinigameItems = { bigZone: 0, calmingBait: 0, tightBounds: 0 };
 
 const initialState = {
   currency: STARTING_CURRENCY,
@@ -55,7 +55,6 @@ const initialState = {
   biteDeadline: 0,
   currentCatchFish: null,
   minigameItems: defaultMinigameItems,
-  autoFishUnlocked: false,
   autoFishEnabled: false,
 };
 
@@ -64,6 +63,11 @@ function loadState() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
+      const migratedMinigameItems = {};
+      for (const k of Object.keys(defaultMinigameItems)) {
+        const v = parsed.minigameItems?.[k];
+        migratedMinigameItems[k] = typeof v === 'boolean' ? (v ? 1 : 0) : (typeof v === 'number' ? v : 0);
+      }
       return {
         ...initialState,
         ...parsed,
@@ -72,7 +76,7 @@ function loadState() {
         castStartedAt: 0,
         biteDeadline: 0,
         currentCatchFish: null,
-        minigameItems: { ...defaultMinigameItems, ...(parsed.minigameItems || {}) },
+        minigameItems: migratedMinigameItems,
         autoSettings: {
           autoSell: { ...defaultAutoSettings.autoSell, ...(parsed.autoSettings?.autoSell || {}), variants: { ...defaultAutoSettings.autoSell.variants, ...(parsed.autoSettings?.autoSell?.variants || {}) }, rarities: { ...defaultAutoSettings.autoSell.rarities, ...(parsed.autoSettings?.autoSell?.rarities || {}) } },
           autoBank: { ...defaultAutoSettings.autoBank, ...(parsed.autoSettings?.autoBank || {}), variants: { ...defaultAutoSettings.autoBank.variants, ...(parsed.autoSettings?.autoBank?.variants || {}) }, rarities: { ...defaultAutoSettings.autoBank.rarities, ...(parsed.autoSettings?.autoBank?.rarities || {}) } },
@@ -168,26 +172,33 @@ export function useGameState() {
     return () => clearTimeout(timer);
   }, [state.castPhase, state.biteDeadline]);
 
-  // Auto-fish: only runs once unlocked (all three minigame assist items
-  // purchased) AND the player has turned it on. Fully bypasses the manual
-  // minigame, matching the original passive-fishing behavior.
+  // Auto-fish: availability is tied to the current rod tier (RODS[tier].autoRarities),
+  // not a separate purchase. It still rolls a bite each cycle, but only fish
+  // within the rod's supported rarities actually get caught - anything rarer
+  // still requires playing the manual minigame.
   useEffect(() => {
-    if (!state.autoFishUnlocked || !state.autoFishEnabled) return;
     const rod = RODS[state.rodTier];
+    if (!state.autoFishEnabled || rod.autoRarities.length === 0) return;
     const timer = setInterval(() => {
       setState(prev => {
-        if (!prev.autoFishUnlocked || !prev.autoFishEnabled) return prev;
+        const currentRod = RODS[prev.rodTier];
+        if (!prev.autoFishEnabled || currentRod.autoRarities.length === 0) return prev;
         if (prev.bait <= 0) return prev;
         if (prev.castPhase !== 'idle') return prev;
         const fish = rollFish(prev.location);
         if (prev.permits.deepwater && prev.location === 'deep') {
           fish.value = Math.round(fish.value * 1.5);
         }
-        return depositCaughtFish({ ...prev, bait: prev.bait - 1 }, fish, RODS[prev.rodTier]);
+        const afterBait = { ...prev, bait: prev.bait - 1 };
+        if (!currentRod.autoRarities.includes(fish.rarity)) {
+          // Too good for auto-catch - it gets away.
+          return { ...afterBait, lastCatchTime: Date.now(), lastCaughtFish: null };
+        }
+        return depositCaughtFish(afterBait, fish, currentRod);
       });
     }, rod.biteWait);
     return () => clearInterval(timer);
-  }, [state.autoFishUnlocked, state.autoFishEnabled, state.rodTier, state.location]);
+  }, [state.autoFishEnabled, state.rodTier, state.location]);
 
   // Cage trap timer
   useEffect(() => {
@@ -364,22 +375,16 @@ export function useGameState() {
     buyMinigameItem: useCallback((key) => {
       setState(prev => {
         const item = MINIGAME_ITEMS[key];
-        if (!item || prev.minigameItems[key] || prev.currency < item.cost) return prev;
-        return { ...prev, currency: prev.currency - item.cost, minigameItems: { ...prev.minigameItems, [key]: true } };
-      });
-    }, []),
-
-    buyAutoFish: useCallback(() => {
-      setState(prev => {
-        const allOwned = Object.keys(MINIGAME_ITEMS).every(k => prev.minigameItems[k]);
-        if (!allOwned || prev.autoFishUnlocked || prev.currency < AUTO_FISH_COST) return prev;
-        return { ...prev, currency: prev.currency - AUTO_FISH_COST, autoFishUnlocked: true };
+        const currentTier = prev.minigameItems[key] || 0;
+        const nextTier = item?.tiers?.[currentTier];
+        if (!item || !nextTier || prev.currency < nextTier.cost) return prev;
+        return { ...prev, currency: prev.currency - nextTier.cost, minigameItems: { ...prev.minigameItems, [key]: currentTier + 1 } };
       });
     }, []),
 
     toggleAutoFish: useCallback(() => {
       setState(prev => {
-        if (!prev.autoFishUnlocked) return prev;
+        if (RODS[prev.rodTier].autoRarities.length === 0) return prev;
         return { ...prev, autoFishEnabled: !prev.autoFishEnabled };
       });
     }, []),

@@ -20,7 +20,7 @@ const BOAT_SPOTS = [
 
 const GROUND_Y = { shore: 1.65, rocks: 1.0, deep: 1.2 };
 const WALK_BOUNDS = {
-  shore: { minX: -6, maxX: 6, minZ: -9, maxZ: 11 },
+  shore: { minX: -1.7, maxX: 1.7, minZ: -7.7, maxZ: 11.7 }, // matches the dock footprint (4 wide x 20 long, centered at z=2)
   rocks: { minX: -5, maxX: 5, minZ: -4, maxZ: 4 },
   deep: { minX: -6, maxX: 6, minZ: 0.5, maxZ: 8 },
 };
@@ -372,6 +372,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     const clock = new THREE.Clock();
     let lastFrameTime = clock.getElapsedTime();
     let sinceLastBroadcast = 0;
+    let wasMoving = false;
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
@@ -437,12 +438,19 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         localRot = Math.atan2(dx, dz);
         character.position.set(localPos.x, groundY, localPos.z);
         character.rotation.y = localRot;
+        wasMoving = true;
 
         sinceLastBroadcast += dt * 1000;
         if (sinceLastBroadcast >= BROADCAST_INTERVAL && onCharacterPlacedRef.current) {
           sinceLastBroadcast = 0;
           onCharacterPlacedRef.current(localPos.x, localPos.z, localRot);
         }
+      } else if (wasMoving) {
+        // Just stopped - send one last precise update so remote players'
+        // interpolation settles exactly where we actually stopped.
+        wasMoving = false;
+        sinceLastBroadcast = 0;
+        if (onCharacterPlacedRef.current) onCharacterPlacedRef.current(localPos.x, localPos.z, localRot);
       }
       character.rotation.z = Math.sin(t * 0.8) * 0.03;
       ownLabel.sprite.position.set(localPos.x, groundY + 1.7, localPos.z);
@@ -459,16 +467,30 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
           scene.add(char);
           const label = createNameLabel(p.player_name || 'Player');
           scene.add(label.sprite);
-          otherChars.set(p.id, { group: char, sprite: label.sprite, texture: label.texture, material: label.material });
+          otherChars.set(p.id, { group: char, sprite: label.sprite, texture: label.texture, material: label.material, firstUpdate: true, targetX: 0, targetZ: 0, targetRot: 0 });
         }
         const entry = otherChars.get(p.id);
         const px = p.character_x || 0;
         const pz = p.character_z || 0;
-        entry.group.position.set(px, groundY, pz);
-        entry.group.rotation.y = p.character_rot || 0;
-        entry.group.rotation.z = Math.sin(t * 0.8 + px) * 0.03;
-        entry.sprite.position.set(px, groundY + 1.7, pz);
-        syncBubble(p.id, { x: px, y: groundY + 1.7, z: pz });
+        entry.targetX = px;
+        entry.targetZ = pz;
+        entry.targetRot = p.character_rot || 0;
+        if (entry.firstUpdate) {
+          entry.group.position.set(px, groundY, pz);
+          entry.group.rotation.y = entry.targetRot;
+          entry.firstUpdate = false;
+        }
+        // Smoothly interpolate toward the latest known position every frame,
+        // rather than only moving when a new update arrives - this is what
+        // makes other players look like they're actually walking instead of
+        // teleporting between position updates.
+        const lerpFactor = Math.min(1, 8 * dt);
+        entry.group.position.x += (entry.targetX - entry.group.position.x) * lerpFactor;
+        entry.group.position.z += (entry.targetZ - entry.group.position.z) * lerpFactor;
+        entry.group.rotation.y = entry.targetRot;
+        entry.group.rotation.z = Math.sin(t * 0.8 + entry.group.position.x) * 0.03;
+        entry.sprite.position.set(entry.group.position.x, groundY + 1.7, entry.group.position.z);
+        syncBubble(p.id, { x: entry.group.position.x, y: groundY + 1.7, z: entry.group.position.z });
       }
       for (const [id, entry] of otherChars) {
         if (!currentIds.has(id)) {

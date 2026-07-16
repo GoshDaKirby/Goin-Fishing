@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 
+const AUTO_PUSH_INTERVAL = 15000;
+
 // Cloud save is entirely optional. Signed-out players just use localStorage,
 // same as before. Signed-in players get their save mirrored to a Supabase
 // `saves` table (one row per user, protected by Row Level Security so only
@@ -9,7 +11,9 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 export function useCloudSave(user, state, actions) {
   const [cloudSave, setCloudSave] = useState(null);
   const [checking, setChecking] = useState(false);
-  const lastPushedRef = useRef(null);
+  const [pushStatus, setPushStatus] = useState(null); // { ok: bool, message: string, at: number }
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const fetchCloudSave = useCallback(async () => {
     if (!isSupabaseConfigured || !user) return null;
@@ -20,7 +24,11 @@ export function useCloudSave(user, state, actions) {
       .eq('user_id', user.id)
       .maybeSingle();
     setChecking(false);
-    if (error) { console.error('Failed to fetch cloud save:', error); return null; }
+    if (error) {
+      console.error('Failed to fetch cloud save:', error);
+      setPushStatus({ ok: false, message: `Couldn't check cloud save: ${error.message}`, at: Date.now() });
+      return null;
+    }
     setCloudSave(data || null);
     return data || null;
   }, [user]);
@@ -36,23 +44,40 @@ export function useCloudSave(user, state, actions) {
     return fresh;
   }, [fetchCloudSave, actions]);
 
-  const pushSave = useCallback(async (dataToSave) => {
-    if (!isSupabaseConfigured || !user) return;
-    const json = JSON.stringify(dataToSave);
-    if (json === lastPushedRef.current) return;
-    lastPushedRef.current = json;
+  // Always actually writes (no silent dedup skip) so the caller gets honest
+  // feedback about whether it worked. Returns { ok, message }.
+  const pushSave = useCallback(async (dataToSave, { silent } = {}) => {
+    if (!isSupabaseConfigured || !user) return { ok: false, message: 'Not signed in.' };
     const { error } = await supabase
       .from('saves')
-      .upsert({ user_id: user.id, data: dataToSave, updated_at: new Date().toISOString() });
-    if (error) console.error('Failed to push cloud save:', error);
+      .upsert({ user_id: user.id, data: dataToSave, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    if (error) {
+      console.error('Failed to push cloud save:', error);
+      const result = { ok: false, message: error.message || 'Push failed.' };
+      if (!silent) setPushStatus({ ...result, at: Date.now() });
+      return result;
+    }
+    const result = { ok: true, message: 'Saved to the cloud.' };
+    if (!silent) setPushStatus({ ...result, at: Date.now() });
+    setCloudSave({ data: dataToSave, updated_at: new Date().toISOString() });
+    return result;
   }, [user]);
 
-  // Debounced auto-push while signed in.
+  // Auto-push on a fixed interval while signed in. This reads the latest
+  // state via a ref rather than depending on `state` directly - the previous
+  // version used a debounce keyed on the state object, which reset on every
+  // change; since game state changes every second or so from timers (cage
+  // traps, museum payouts, etc.), that debounce almost never actually
+  // completed, so auto-save silently never ran.
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
-    const timer = setTimeout(() => pushSave(state), 4000);
-    return () => clearTimeout(timer);
-  }, [user, state, pushSave]);
+    const interval = setInterval(() => {
+      pushSave(stateRef.current, { silent: true });
+    }, AUTO_PUSH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [user, pushSave]);
 
-  return { cloudSave, checking, fetchCloudSave, loadCloudSave, pushSave };
+  const pushCurrentSave = useCallback(() => pushSave(stateRef.current), [pushSave]);
+
+  return { cloudSave, checking, pushStatus, fetchCloudSave, loadCloudSave, pushSave, pushCurrentSave };
 }

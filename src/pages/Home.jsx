@@ -67,8 +67,9 @@ export default function Home() {
   }, [state.castPhase]);
 
   const rod = RODS[state.rodTier];
+  const autoFishActive = rod.autoRarities.length > 0 && state.autoFishEnabled;
   const inventoryFull = state.caughtInventory.length >= rod.inventoryCap;
-  const canCast = state.bait > 0 && !inventoryFull && state.castPhase === 'idle' && !(state.autoFishUnlocked && state.autoFishEnabled);
+  const canCast = state.bait > 0 && !inventoryFull && state.castPhase === 'idle' && !autoFishActive;
   const navItems = [
     { id: 'inventory', icon: Package, label: 'Catch', badge: state.caughtInventory.length },
     { id: 'shop', icon: ShoppingBag, label: 'Shop' },
@@ -184,7 +185,7 @@ export default function Home() {
       )}
 
       {/* Fishing Status / Cast controls */}
-      {view === 'fishing' && !(state.autoFishUnlocked && state.autoFishEnabled) && (
+      {view === 'fishing' && !autoFishActive && (
         <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
           {state.castPhase === 'idle' && (
             <>
@@ -219,7 +220,7 @@ export default function Home() {
           )}
         </div>
       )}
-      {view === 'fishing' && state.autoFishUnlocked && state.autoFishEnabled && (
+      {view === 'fishing' && autoFishActive && (
         <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10">
           <div className="bg-emerald-600/70 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
             <Waves size={12} className="animate-pulse" /> Auto-fishing...

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
-import { MINIGAME_BASE, MINIGAME_RARITY } from '@/game/gameConfig';
+import { MINIGAME_BASE, MINIGAME_RARITY, MINIGAME_ITEMS } from '@/game/gameConfig';
 import { sfx } from '@/lib/soundEffects';
 
 // A Stardew-Valley-style "keep the fish in the zone" minigame. The green
@@ -26,9 +26,15 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
   const rarity = fish?.rarity || 'common';
   const rarityCfg = MINIGAME_RARITY[rarity] || MINIGAME_RARITY.common;
 
-  const zoneRadius = (MINIGAME_BASE.zoneSize / 2) * (1 + (minigameItems?.bigZone ? 0.4 : 0));
-  const speedMult = minigameItems?.calmingBait ? 0.65 : 1;
-  const bounds = MINIGAME_BASE.boundsSize * (minigameItems?.tightBounds ? 0.7 : 1);
+  const bigZoneTier = minigameItems?.bigZone || 0;
+  const calmingTier = minigameItems?.calmingBait || 0;
+  const boundsTier = minigameItems?.tightBounds || 0;
+  const zoneBonus = bigZoneTier > 0 ? MINIGAME_ITEMS.bigZone.tiers[bigZoneTier - 1].zoneBonus : 0;
+  const speedMult = calmingTier > 0 ? MINIGAME_ITEMS.calmingBait.tiers[calmingTier - 1].speedMult : 1;
+  const boundsMult = boundsTier > 0 ? MINIGAME_ITEMS.tightBounds.tiers[boundsTier - 1].boundsMult : 1;
+
+  const zoneRadius = (MINIGAME_BASE.zoneSize / 2) * (1 + zoneBonus);
+  const bounds = MINIGAME_BASE.boundsSize * boundsMult;
   const half = bounds / 2;
 
   const resolve = useCallback((success) => {
@@ -119,10 +125,13 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
       if (ny < -half) { ny = -half; fishVelRef.current = { ...fv, y: Math.abs(fv.y) }; }
       fishPosRef.current = { x: nx, y: ny };
 
-      // Meter fill/drain
+      // Meter fill/drain - fill rate ramps up over the attempt's duration
+      // (slow and deliberate at first, noticeably quicker near the end).
       const dist = Math.hypot(fishPosRef.current.x - zonePosRef.current.x, fishPosRef.current.y - zonePosRef.current.y);
       const inside = dist <= zoneRadius;
-      meterRef.current = Math.max(0, Math.min(100, meterRef.current + (inside ? MINIGAME_BASE.fillRate : -MINIGAME_BASE.drainRate) * dt * 100));
+      const progress = Math.min(1, elapsedRef.current / MINIGAME_BASE.duration);
+      const currentFillRate = MINIGAME_BASE.fillRateStart + (MINIGAME_BASE.fillRateEnd - MINIGAME_BASE.fillRateStart) * progress;
+      meterRef.current = Math.max(0, Math.min(100, meterRef.current + (inside ? currentFillRate : -MINIGAME_BASE.drainRate) * dt * 100));
 
       // Throttle React state updates to ~20fps for perf
       if (tickAcc >= 0.05) {

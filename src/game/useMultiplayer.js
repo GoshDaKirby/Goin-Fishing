@@ -162,6 +162,31 @@ export function useMultiplayer(user) {
 
   const clearViewedBank = useCallback(() => setViewedBank(null), []);
 
+  // Defense-in-depth against presence desync: periodically re-track our own
+  // presence (keeps it fresh server-side) and force a full resync of the
+  // player list, rather than relying solely on join/leave/sync events. Also
+  // force an immediate resync when the tab regains visibility, since
+  // backgrounded mobile tabs can throttle timers/animation frames enough
+  // that presence updates get missed or feel stale until something forces
+  // a fresh look.
+  useEffect(() => {
+    if (!inWorld) return;
+    const heartbeat = () => {
+      if (!channelRef.current) return;
+      channelRef.current.track(presenceDataRef.current);
+      syncOtherPlayers();
+    };
+    const interval = setInterval(heartbeat, 8000);
+    const handleVisibility = () => { if (document.visibilityState === 'visible') heartbeat(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [inWorld, syncOtherPlayers]);
+
   // Clean up on unmount / tab close.
   useEffect(() => {
     const handleUnload = () => {
