@@ -77,6 +77,39 @@ By default, Supabase requires email confirmation on sign-up (**Authentication ->
 You can leave that on (players confirm via a link Supabase emails them) or turn it off for a
 frictionless "make up any email" experience - up to you.
 
+## 7. Public world listings (optional)
+
+If you want players to be able to browse and join public worlds without typing a code, run this too:
+
+```sql
+create table worlds (
+  code text primary key,
+  is_public boolean not null default true,
+  host_name text,
+  updated_at timestamptz not null default now()
+);
+
+alter table worlds enable row level security;
+
+-- No sign-in is used for multiplayer, so this intentionally allows anyone
+-- to read the list and to upsert entries (hosting a public world doesn't
+-- require an account). This is fine for a casual game; if you ever want to
+-- lock it down further, that's the policy to revisit.
+create policy "Anyone can read public worlds"
+  on worlds for select
+  using (true);
+
+create policy "Anyone can list a public world"
+  on worlds for insert
+  with check (true);
+
+create policy "Anyone can refresh a public world listing"
+  on worlds for update
+  using (true);
+```
+
+Private worlds (joined by code) never touch this table at all - only worlds explicitly hosted as "Public" get listed, and listings quietly drop off the list after a few minutes of inactivity (no cleanup needed).
+
 ## Troubleshooting cloud save
 
 If "Push"/"Pull" in the Account panel don't seem to work, the panel now shows the actual error message
