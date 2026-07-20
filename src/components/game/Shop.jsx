@@ -82,7 +82,11 @@ export default function Shop({ state, actions, onClose }) {
                 key={rod.id}
                 icon={<Fish size={16} />}
                 title={rod.name}
-                desc={`~${(rod.biteWait / 1000).toFixed(1)}s avg. bite wait · ${rod.inventoryCap} inventory slots`}
+                desc={`~${(rod.biteWait / 1000).toFixed(1)}s avg. bite wait · ${rod.inventoryCap} inventory slots · ${
+                  rod.autoRarities.length > 0
+                    ? `Auto-fishes ${rod.autoRarities[rod.autoRarities.length - 1]} and below`
+                    : 'No auto-catch'
+                }`}
                 cost={rod.cost}
                 owned={i <= state.rodTier}
                 locked={i > state.rodTier + 1}

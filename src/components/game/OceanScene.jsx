@@ -98,6 +98,17 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
   onCharacterPlacedRef.current = onCharacterPlaced;
   const chatBubblesRef = useRef({});
   chatBubblesRef.current = chatBubbles || {};
+  // castPhase only drives the bobber/line (handled by a separate effect below)
+  // so it's tracked in a ref rather than being a dependency of the main scene
+  // setup effect - rebuilding the whole scene on every cast would otherwise
+  // snap the player's walked-to position back to their spawn point every
+  // time they cast a line.
+  const castPhaseRef = useRef(castPhase);
+  castPhaseRef.current = castPhase;
+  const sceneForBobberRef = useRef(null);
+  const groundYForBobberRef = useRef(0);
+  const spotForBobberRef = useRef(null);
+  const bobberStateRef = useRef(null);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -296,31 +307,12 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    let bobber = null;
-    let lineGeo = null;
-    let line = null;
-    if (castPhase === 'waiting' || castPhase === 'biting') {
-      const bobX = spot[0] + Math.sin(spot[3]) * 2.5;
-      const bobZ = spot[2] + Math.cos(spot[3]) * 2.5;
-      const rodTipX = spot[0] + Math.sin(spot[3]) * 0.6;
-      const rodTipZ = spot[2] + Math.cos(spot[3]) * 0.6;
-
-      lineGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(rodTipX, spot[1] + 0.8, rodTipZ),
-        new THREE.Vector3(bobX, 0, bobZ),
-      ]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
-      line = new THREE.Line(lineGeo, lineMat);
-      scene.add(line);
-      disposables.push(lineMat);
-
-      const bg = new THREE.SphereGeometry(0.1, 6, 6);
-      const bm = new THREE.MeshStandardMaterial({ color: 0xff4444, flatShading: true });
-      bobber = new THREE.Mesh(bg, bm);
-      bobber.position.set(bobX, 0, bobZ);
-      scene.add(bobber);
-      disposables.push(bg, bm);
-    }
+    // Bobber/line creation is handled by a separate effect (keyed on
+    // castPhase) further down, using the refs populated just below, so
+    // starting/ending a cast doesn't require rebuilding this whole scene.
+    sceneForBobberRef.current = scene;
+    groundYForBobberRef.current = groundY;
+    spotForBobberRef.current = spot;
 
     // Decorative fish
     const decoFish = [];
@@ -403,11 +395,12 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         if (c.mesh.position.x > 50) c.mesh.position.x = -50;
       });
 
-      if (bobber) {
-        if (castPhase === 'biting') {
-          bobber.position.y = Math.sin(t * 14) * 0.22;
+      const activeBobber = bobberStateRef.current?.bobber;
+      if (activeBobber) {
+        if (castPhaseRef.current === 'biting') {
+          activeBobber.position.y = Math.sin(t * 14) * 0.22;
         } else {
-          bobber.position.y = Math.sin(t * 3) * 0.12 + Math.sin(t * 0.5) * 0.08;
+          activeBobber.position.y = Math.sin(t * 3) * 0.12 + Math.sin(t * 0.5) * 0.08;
         }
       }
 
@@ -550,14 +543,63 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         b.material.dispose();
       }
       bubbles.clear();
-      if (lineGeo) lineGeo.dispose();
       disposables.forEach(d => d.dispose());
+      if (bobberStateRef.current) {
+        scene.remove(bobberStateRef.current.bobber, bobberStateRef.current.line);
+        bobberStateRef.current.geo?.dispose();
+        bobberStateRef.current.mats?.forEach(m => m.dispose());
+        bobberStateRef.current = null;
+      }
+      sceneForBobberRef.current = null;
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
       renderer.dispose();
     };
-  }, [location, castPhase, myId]);
+  }, [location, myId]);
+
+  // Bobber/line: created when a cast goes out, removed when it comes back in.
+  // Kept separate from the main scene setup effect above so casting doesn't
+  // tear down (and reset the position of) the player's character.
+  useEffect(() => {
+    const scene = sceneForBobberRef.current;
+    const spot = spotForBobberRef.current;
+    if (!scene || !spot) return;
+
+    if (castPhase === 'waiting' || castPhase === 'biting') {
+      const bobX = spot[0] + Math.sin(spot[3]) * 2.5;
+      const bobZ = spot[2] + Math.cos(spot[3]) * 2.5;
+      const rodTipX = spot[0] + Math.sin(spot[3]) * 0.6;
+      const rodTipZ = spot[2] + Math.cos(spot[3]) * 0.6;
+
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(rodTipX, spot[1] + 0.8, rodTipZ),
+        new THREE.Vector3(bobX, 0, bobZ),
+      ]);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+      const line = new THREE.Line(lineGeo, lineMat);
+      scene.add(line);
+
+      const bg = new THREE.SphereGeometry(0.1, 6, 6);
+      const bm = new THREE.MeshStandardMaterial({ color: 0xff4444, flatShading: true });
+      const bobber = new THREE.Mesh(bg, bm);
+      bobber.position.set(bobX, 0, bobZ);
+      scene.add(bobber);
+
+      bobberStateRef.current = { bobber, line, geo: lineGeo, mats: [lineMat, bg, bm] };
+    }
+
+    return () => {
+      const state = bobberStateRef.current;
+      if (state) {
+        scene.remove(state.bobber);
+        scene.remove(state.line);
+        state.geo?.dispose();
+        state.mats?.forEach(m => m.dispose?.());
+        bobberStateRef.current = null;
+      }
+    };
+  }, [castPhase]);
 
   return <div ref={mountRef} className="absolute inset-0" style={{ touchAction: 'none' }} />;
 }

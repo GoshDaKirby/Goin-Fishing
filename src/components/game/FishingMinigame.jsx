@@ -18,10 +18,12 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
   const nextDirChangeRef = useRef(0);
   const resolvedRef = useRef(false);
   const keysRef = useRef({});
+  const countdownClearedRef = useRef(false);
 
   const [meterDisplay, setMeterDisplay] = useState(50);
   const [zoneDisplay, setZoneDisplay] = useState({ x: 0, y: 0 });
   const [fishDisplay, setFishDisplay] = useState({ x: 0, y: 0 });
+  const [countdownDisplay, setCountdownDisplay] = useState(Math.ceil(MINIGAME_BASE.countdown / 1000));
 
   const rarity = fish?.rarity || 'common';
   const rarityCfg = MINIGAME_RARITY[rarity] || MINIGAME_RARITY.common;
@@ -54,7 +56,9 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
     elapsedRef.current = 0;
     nextDirChangeRef.current = 0;
     resolvedRef.current = false;
+    countdownClearedRef.current = false;
     setMeterDisplay(50);
+    setCountdownDisplay(Math.ceil(MINIGAME_BASE.countdown / 1000));
 
     const handleKeyDown = (e) => { keysRef.current[e.key] = true; };
     const handleKeyUp = (e) => { keysRef.current[e.key] = false; };
@@ -88,7 +92,15 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
       elapsedRef.current += dt * 1000;
       tickAcc += dt;
 
-      // Keyboard movement for the zone
+      const gameElapsed = elapsedRef.current - MINIGAME_BASE.countdown;
+      const inCountdown = gameElapsed < 0;
+      if (!inCountdown && countdownClearedRef.current === false) {
+        countdownClearedRef.current = true;
+        setCountdownDisplay(0);
+      }
+
+      // Keyboard movement for the zone - allowed even during the countdown
+      // so the player can get positioned before things start moving.
       const arrowSpeed = 220;
       let kx = 0, ky = 0;
       if (keysRef.current['ArrowLeft'] || keysRef.current['a'] || keysRef.current['A']) kx -= 1;
@@ -103,15 +115,27 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
         };
       }
 
+      if (inCountdown) {
+        const secsLeft = Math.ceil(-gameElapsed / 1000);
+        if (tickAcc >= 0.05) {
+          tickAcc = 0;
+          setCountdownDisplay(secsLeft);
+          setZoneDisplay({ ...zonePosRef.current });
+          setFishDisplay({ ...fishPosRef.current });
+        }
+        animId = requestAnimationFrame(step);
+        return;
+      }
+
       // Fish wandering movement
-      if (elapsedRef.current >= nextDirChangeRef.current) {
+      if (gameElapsed >= nextDirChangeRef.current) {
         const angle = Math.random() * Math.PI * 2;
         const jitterMag = rarityCfg.jitter;
         fishVelRef.current = {
           x: fishVelRef.current.x * (1 - jitterMag) + Math.cos(angle) * jitterMag,
           y: fishVelRef.current.y * (1 - jitterMag) + Math.sin(angle) * jitterMag,
         };
-        nextDirChangeRef.current = elapsedRef.current + rarityCfg.directionChangeMs * (0.6 + Math.random() * 0.8);
+        nextDirChangeRef.current = gameElapsed + rarityCfg.directionChangeMs * (0.6 + Math.random() * 0.8);
       }
       const speed = rarityCfg.speed * speedMult;
       const fp = fishPosRef.current;
@@ -125,13 +149,14 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
       if (ny < -half) { ny = -half; fishVelRef.current = { ...fv, y: Math.abs(fv.y) }; }
       fishPosRef.current = { x: nx, y: ny };
 
-      // Meter fill/drain - fill rate ramps up over the attempt's duration
-      // (slow and deliberate at first, noticeably quicker near the end).
+      // Meter fill/drain - both ramp from slow to fast over the attempt's
+      // duration (forgiving at first, noticeably quicker near the end).
       const dist = Math.hypot(fishPosRef.current.x - zonePosRef.current.x, fishPosRef.current.y - zonePosRef.current.y);
       const inside = dist <= zoneRadius;
-      const progress = Math.min(1, elapsedRef.current / MINIGAME_BASE.duration);
+      const progress = Math.min(1, gameElapsed / MINIGAME_BASE.duration);
       const currentFillRate = MINIGAME_BASE.fillRateStart + (MINIGAME_BASE.fillRateEnd - MINIGAME_BASE.fillRateStart) * progress;
-      meterRef.current = Math.max(0, Math.min(100, meterRef.current + (inside ? currentFillRate : -MINIGAME_BASE.drainRate) * dt * 100));
+      const currentDrainRate = MINIGAME_BASE.drainRateStart + (MINIGAME_BASE.drainRateEnd - MINIGAME_BASE.drainRateStart) * progress;
+      meterRef.current = Math.max(0, Math.min(100, meterRef.current + (inside ? currentFillRate : -currentDrainRate) * dt * 100));
 
       // Throttle React state updates to ~20fps for perf
       if (tickAcc >= 0.05) {
@@ -143,7 +168,7 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
 
       if (meterRef.current >= 100) { resolve(true); return; }
       if (meterRef.current <= 0) { resolve(false); return; }
-      if (elapsedRef.current >= MINIGAME_BASE.duration && meterRef.current < 100) {
+      if (gameElapsed >= MINIGAME_BASE.duration && meterRef.current < 100) {
         // Time's up - resolved by however full the meter is at that point.
         resolve(meterRef.current >= 50);
         return;
@@ -190,6 +215,12 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
           >
             🐟
           </div>
+
+          {countdownDisplay > 0 && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-2xl z-10">
+              <span className="text-white text-4xl font-bold drop-shadow-lg animate-pulse">{countdownDisplay}</span>
+            </div>
+          )}
 
           {/* Catch zone */}
           <div

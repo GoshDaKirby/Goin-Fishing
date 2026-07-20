@@ -1,9 +1,9 @@
 export const RODS = [
   { id: 'basic', name: 'Basic Rod', biteWait: 13000, inventoryCap: 20, cost: 0, autoRarities: [], desc: 'A simple stick with string. Long waits between bites. No auto-catch.' },
-  { id: 'improved', name: 'Improved Rod', biteWait: 10000, inventoryCap: 30, cost: 800, autoRarities: ['common'], desc: 'Faster bites. Auto-catch can handle common fish.' },
-  { id: 'advanced', name: 'Advanced Rod', biteWait: 7500, inventoryCap: 40, cost: 4000, autoRarities: ['common', 'uncommon'], desc: 'Even faster bites. Auto-catch handles uncommon and below.' },
-  { id: 'pro', name: 'Pro Rod', biteWait: 5500, inventoryCap: 60, cost: 16000, autoRarities: ['common', 'uncommon', 'rare'], desc: 'Quick bites for the serious angler. Auto-catch handles rare and below.' },
-  { id: 'master', name: 'Master Rod', biteWait: 4000, inventoryCap: 100, cost: 50000, autoRarities: ['common', 'uncommon', 'rare', 'epic'], desc: 'The finest rod ever crafted. Bites come fast, and auto-catch handles everything but legendaries.' },
+  { id: 'improved', name: 'Improved Rod', biteWait: 10000, inventoryCap: 30, cost: 800, autoRarities: ['common'], desc: 'Faster bites. Auto-fishes common and below.' },
+  { id: 'advanced', name: 'Advanced Rod', biteWait: 7500, inventoryCap: 40, cost: 4000, autoRarities: ['common', 'uncommon'], desc: 'Even faster bites. Auto-fishes uncommon and below.' },
+  { id: 'pro', name: 'Pro Rod', biteWait: 5500, inventoryCap: 60, cost: 16000, autoRarities: ['common', 'uncommon', 'rare'], desc: 'Quick bites for the serious angler. Auto-fishes rare and below.' },
+  { id: 'master', name: 'Master Rod', biteWait: 4000, inventoryCap: 100, cost: 50000, autoRarities: ['common', 'uncommon', 'rare', 'epic'], desc: 'The finest rod ever crafted. Auto-fishes epic and below.' },
 ];
 
 export const PERMITS = {
@@ -61,13 +61,15 @@ export const MUSEUM_PAYOUT_INTERVAL = 30000;
 export const MINIGAME_BASE = {
   boundsSize: 260,      // px, the outer square the fish is constrained to
   zoneSize: 70,         // px, the green catch-zone diameter
-  duration: 9000,        // ms, how long the player has to fill the catch meter
-  // The fill rate ramps from slow to fast over the duration of a single catch
-  // attempt - progress feels sluggish at first (time pressure), then speeds
-  // up as the clock runs down, rewarding players who stick with it.
+  duration: 9000,        // ms, how long the player has to fill the catch meter (after the countdown)
+  countdown: 3000,       // ms, "get ready" pause before the fish/meter start moving at all
+  // Both fill and drain ramp from slow to fast over the duration of a single
+  // catch attempt - everything feels sluggish and forgiving at first (time
+  // to get positioned), then speeds up as the clock runs down.
   fillRateStart: 0.35,   // meter fill/sec at the start of the attempt
   fillRateEnd: 1.4,      // meter fill/sec by the end of the attempt
-  drainRate: 0.6,        // meter drain per second while fish is outside the zone
+  drainRateStart: 0.2,   // meter drain/sec at the start of the attempt
+  drainRateEnd: 0.8,     // meter drain/sec by the end of the attempt
 };
 
 // Per-rarity fish movement behavior in the minigame: calmer for common fish,
