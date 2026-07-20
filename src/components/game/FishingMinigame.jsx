@@ -23,7 +23,7 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
   const [meterDisplay, setMeterDisplay] = useState(50);
   const [zoneDisplay, setZoneDisplay] = useState({ x: 0, y: 0 });
   const [fishDisplay, setFishDisplay] = useState({ x: 0, y: 0 });
-  const [countdownDisplay, setCountdownDisplay] = useState(Math.ceil(MINIGAME_BASE.countdown / 1000));
+  const [countdownDisplay, setCountdownDisplay] = useState(3);
 
   const rarity = fish?.rarity || 'common';
   const rarityCfg = MINIGAME_RARITY[rarity] || MINIGAME_RARITY.common;
@@ -58,7 +58,7 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
     resolvedRef.current = false;
     countdownClearedRef.current = false;
     setMeterDisplay(50);
-    setCountdownDisplay(Math.ceil(MINIGAME_BASE.countdown / 1000));
+    setCountdownDisplay(3);
 
     const handleKeyDown = (e) => { keysRef.current[e.key] = true; };
     const handleKeyUp = (e) => { keysRef.current[e.key] = false; };
@@ -116,7 +116,7 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
       }
 
       if (inCountdown) {
-        const secsLeft = Math.ceil(-gameElapsed / 1000);
+        const secsLeft = Math.max(1, Math.ceil(-gameElapsed / (MINIGAME_BASE.countdown / 3)));
         if (tickAcc >= 0.05) {
           tickAcc = 0;
           setCountdownDisplay(secsLeft);
@@ -189,6 +189,9 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
   }, [fish?.id]);
 
   const meterColor = meterDisplay > 66 ? '#4ade80' : meterDisplay > 33 ? '#fbbf24' : '#f87171';
+  const zoneDist = Math.hypot(fishDisplay.x - zoneDisplay.x, fishDisplay.y - zoneDisplay.y);
+  const zoneInside = zoneDist <= zoneRadius;
+  const zoneColor = zoneInside ? '#34d399' : '#f87171';
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -224,13 +227,15 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
 
           {/* Catch zone */}
           <div
-            className="absolute rounded-full border-2 border-emerald-400 bg-emerald-400/20 pointer-events-none"
+            className="absolute rounded-full pointer-events-none transition-colors"
             style={{
               width: zoneRadius * 2,
               height: zoneRadius * 2,
               left: `calc(50% + ${zoneDisplay.x}px)`,
               top: `calc(50% + ${zoneDisplay.y}px)`,
               transform: 'translate(-50%, -50%)',
+              border: `2px solid ${zoneColor}`,
+              backgroundColor: `${zoneColor}33`,
             }}
           />
         </div>

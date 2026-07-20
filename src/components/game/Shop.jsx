@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { X, Coins, Worm, Anchor, Lock, Fish, Banknote, Building, Zap, RotateCcw, Target, Wind, Waves as WavesIcon, Bot } from 'lucide-react';
-import { RODS, PERMITS, BAIT_PACK_COST, BAIT_PACK_SIZE, CAGE_TRAP_COST, CAGE_TRAP_SLOTS, BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES, MINIGAME_ITEMS } from '@/game/gameConfig';
+import { X, Coins, Worm, Anchor, Lock, Fish, Banknote, Building, Zap, RotateCcw, Target, Wind, Waves as WavesIcon, Bot, Magnet } from 'lucide-react';
+import { RODS, PERMITS, BAIT_PACK_COST, BAIT_PACK_SIZE, TACKLE_PACK_COST, TACKLE_PACK_SIZE, CAGE_TRAP_COST, CAGE_TRAP_SLOTS, BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES, MINIGAME_ITEMS } from '@/game/gameConfig';
 
 function ShopItem({ icon, title, desc, cost, owned, locked, canAfford, onBuy, actionLabel }) {
   return (
@@ -60,17 +60,29 @@ export default function Shop({ state, actions, onClose }) {
       <div className="p-4 space-y-4">
         {/* Bait */}
         <div>
-          <h3 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-2">Bait</h3>
-          <ShopItem
-            icon={<Worm size={16} />}
-            title={`Bait x${BAIT_PACK_SIZE}`}
-            desc="Essential for fishing. Auto-consumed per catch."
-            cost={BAIT_PACK_COST}
-            owned={false}
-            canAfford={state.currency >= BAIT_PACK_COST}
-            onBuy={actions.buyBait}
-            actionLabel="Buy"
-          />
+          <h3 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-2">Bait & Tackle</h3>
+          <div className="space-y-2">
+            <ShopItem
+              icon={<Worm size={16} />}
+              title={`Bait x${BAIT_PACK_SIZE}`}
+              desc="Essential for fishing. Auto-consumed per catch."
+              cost={BAIT_PACK_COST}
+              owned={false}
+              canAfford={state.currency >= BAIT_PACK_COST}
+              onBuy={actions.buyBait}
+              actionLabel="Buy"
+            />
+            <ShopItem
+              icon={<Magnet size={16} />}
+              title={`Magnetic Tackle x${TACKLE_PACK_SIZE}`}
+              desc="Pricier than bait. Fishes up treasure or trash instead of fish - switch to it near the cast button."
+              cost={TACKLE_PACK_COST}
+              owned={false}
+              canAfford={state.currency >= TACKLE_PACK_COST}
+              onBuy={actions.buyTacklePack}
+              actionLabel="Buy"
+            />
+          </div>
         </div>
 
         {/* Rods */}

@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { rollFish, fishMatchesFilters } from './fishData';
+import { rollTrash, rollTreasure, rollTackleCatch, rollEmptyHanded } from './lootData';
 import {
   RODS, PERMITS, CAGE_TRAP_COST, CAGE_TRAP_SLOTS,
   CAGE_TRAP_MIN_TIME, CAGE_TRAP_MAX_TIME, CAGE_VALUE_MULT,
-  BAIT_PACK_COST, BAIT_PACK_SIZE, BANK_UPGRADES,
-  MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
+  BAIT_PACK_COST, BAIT_PACK_SIZE, TACKLE_PACK_COST, TACKLE_PACK_SIZE,
+  BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
   STARTING_CURRENCY, STARTING_BAIT, MUSEUM_PAYOUT_INTERVAL,
-  MINIGAME_ITEMS,
+  MINIGAME_ITEMS, LOOT_INVENTORY_CAP, TREASURE_MUSEUM_CAP,
+  HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS,
   getMuseumIncome,
 } from './gameConfig';
 
@@ -27,11 +29,19 @@ const defaultAutoSettings = {
 
 const defaultMinigameItems = { bigZone: 0, calmingBait: 0, tightBounds: 0 };
 
+function randomDefaultName() {
+  return `Angler${Math.floor(Math.random() * 9000 + 1000)}`;
+}
+
 const initialState = {
   currency: STARTING_CURRENCY,
   bait: STARTING_BAIT,
+  tackle: 0,
+  equipped: 'bait', // 'bait' | 'tackle' | 'none'
   caughtInventory: [],
+  lootInventory: [],
   fishBank: [],
+  treasureBank: [],
   bankTier: 1,
   hasMuseum: false,
   museumTier: 1,
@@ -41,18 +51,24 @@ const initialState = {
   boatTier: 0,
   location: 'shore',
   encyclopedia: {},
+  trashDex: {},
+  treasureDex: {},
   lastCatchTime: 0,
   lastCaughtFish: null,
+  lastLoot: null,
   lastMuseumIncome: 0,
   lastMuseumPayout: 0,
   totalEarned: 0,
   totalCaught: 0,
   autoSettings: defaultAutoSettings,
+  characterName: randomDefaultName(),
+  characterColors: { head: HEAD_COLOR_PRESETS[1], body: BODY_COLOR_PRESETS[0] },
 
   // Active fishing minigame state
   castPhase: 'idle', // 'idle' | 'waiting' | 'biting'
   castStartedAt: 0,
   biteDeadline: 0,
+  castEquipped: 'bait',
   currentCatchFish: null,
   minigameItems: defaultMinigameItems,
   autoFishEnabled: false,
@@ -77,6 +93,8 @@ function loadState() {
         biteDeadline: 0,
         currentCatchFish: null,
         minigameItems: migratedMinigameItems,
+        characterColors: { ...initialState.characterColors, ...(parsed.characterColors || {}) },
+        equipped: parsed.equipped || 'bait',
         autoSettings: {
           autoSell: { ...defaultAutoSettings.autoSell, ...(parsed.autoSettings?.autoSell || {}), variants: { ...defaultAutoSettings.autoSell.variants, ...(parsed.autoSettings?.autoSell?.variants || {}) }, rarities: { ...defaultAutoSettings.autoSell.rarities, ...(parsed.autoSettings?.autoSell?.rarities || {}) } },
           autoBank: { ...defaultAutoSettings.autoBank, ...(parsed.autoSettings?.autoBank || {}), variants: { ...defaultAutoSettings.autoBank.variants, ...(parsed.autoSettings?.autoBank?.variants || {}) }, rarities: { ...defaultAutoSettings.autoBank.rarities, ...(parsed.autoSettings?.autoBank?.rarities || {}) } },
@@ -108,6 +126,45 @@ function randomTrapTime() {
   return Date.now() + CAGE_TRAP_MIN_TIME + Math.random() * (CAGE_TRAP_MAX_TIME - CAGE_TRAP_MIN_TIME);
 }
 
+function updateLootDex(dex, item) {
+  const entry = dex[item.itemId] || {};
+  return {
+    ...dex,
+    [item.itemId]: {
+      ...entry,
+      discovered: true,
+      timesFound: (entry.timesFound || 0) + 1,
+      biggestValue: Math.max(entry.biggestValue || 0, item.value),
+    },
+  };
+}
+
+// Deposits a rolled trash/treasure item. Coin cases skip inventory entirely
+// and just add their value straight to the wallet. Everything else goes into
+// lootInventory (separate from the fish inventory - trash/treasure never mix
+// with fish, per how the fish bank and treasure museum are kept separate).
+function depositLoot(prev, item) {
+  const dexKey = item.kind === 'trash' ? 'trashDex' : 'treasureDex';
+  const dex = updateLootDex(prev[dexKey], item);
+  const base = {
+    [dexKey]: dex,
+    lastCatchTime: Date.now(),
+    lastLoot: item,
+    lastCaughtFish: null,
+  };
+
+  if (item.isCoinCase) {
+    return { ...prev, ...base, currency: prev.currency + item.value, totalEarned: prev.totalEarned + item.value };
+  }
+
+  if (prev.lootInventory.length < LOOT_INVENTORY_CAP) {
+    return { ...prev, ...base, lootInventory: [...prev.lootInventory, item] };
+  }
+
+  // No room - item is lost, but we still show what it was.
+  return { ...prev, lastCatchTime: Date.now(), lastLoot: item, lastCaughtFish: null };
+}
+
 // Places a rolled fish into auto-sell/auto-bank/inventory (in that priority
 // order), matching the old passive-fishing behavior. Always records
 // lastCaughtFish/lastCatchTime directly off the fish that was actually
@@ -121,6 +178,7 @@ function depositCaughtFish(prev, fish, rod) {
     encyclopedia: enc,
     lastCatchTime: Date.now(),
     lastCaughtFish: fish,
+    lastLoot: null,
     totalCaught: prev.totalCaught + 1,
   };
 
@@ -162,6 +220,21 @@ export function useGameState() {
     const timer = setTimeout(() => {
       setState(prev => {
         if (prev.castPhase !== 'waiting') return prev;
+        const rod = RODS[prev.rodTier];
+
+        if (prev.castEquipped === 'tackle') {
+          const item = rollTackleCatch();
+          return depositLoot({ ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0 }, item);
+        }
+
+        if (prev.castEquipped === 'none') {
+          const { result, type } = rollEmptyHanded(rollFish, prev.location);
+          const cleared = { ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0 };
+          if (type === 'fish') return depositCaughtFish(cleared, result, rod);
+          return depositLoot(cleared, result);
+        }
+
+        // Normal bait fishing - goes into the manual minigame as before.
         const fish = rollFish(prev.location);
         if (prev.permits.deepwater && prev.location === 'deep') {
           fish.value = Math.round(fish.value * 1.5);
@@ -328,15 +401,43 @@ export function useGameState() {
     cast: useCallback(() => {
       setState(prev => {
         if (prev.castPhase !== 'idle') return prev;
-        if (prev.bait <= 0) return prev;
-        if (prev.caughtInventory.length >= RODS[prev.rodTier].inventoryCap) return prev;
         const rod = RODS[prev.rodTier];
         const now = Date.now();
+
+        if (prev.equipped === 'tackle') {
+          if (prev.tackle <= 0) return prev;
+          if (prev.lootInventory.length >= LOOT_INVENTORY_CAP) return prev;
+          return {
+            ...prev,
+            tackle: prev.tackle - 1,
+            castPhase: 'waiting',
+            castStartedAt: now,
+            castEquipped: 'tackle',
+            biteDeadline: now + randomBiteWait(rod),
+            currentCatchFish: null,
+          };
+        }
+
+        if (prev.equipped === 'none') {
+          return {
+            ...prev,
+            castPhase: 'waiting',
+            castStartedAt: now,
+            castEquipped: 'none',
+            biteDeadline: now + randomBiteWait(rod),
+            currentCatchFish: null,
+          };
+        }
+
+        // Default: bait
+        if (prev.bait <= 0) return prev;
+        if (prev.caughtInventory.length >= rod.inventoryCap) return prev;
         return {
           ...prev,
           bait: prev.bait - 1,
           castPhase: 'waiting',
           castStartedAt: now,
+          castEquipped: 'bait',
           biteDeadline: now + randomBiteWait(rod),
           currentCatchFish: null,
         };
@@ -346,11 +447,14 @@ export function useGameState() {
     uncast: useCallback(() => {
       setState(prev => {
         if (prev.castPhase === 'idle') return prev;
-        // Refund bait only if the fish never actually bit yet.
-        const refund = prev.castPhase === 'waiting' ? 1 : 0;
+        // Refund the consumed resource only if the fish never actually bit yet.
+        const shouldRefund = prev.castPhase === 'waiting';
+        const refundBait = shouldRefund && prev.castEquipped === 'bait' ? 1 : 0;
+        const refundTackle = shouldRefund && prev.castEquipped === 'tackle' ? 1 : 0;
         return {
           ...prev,
-          bait: prev.bait + refund,
+          bait: prev.bait + refundBait,
+          tackle: prev.tackle + refundTackle,
           castPhase: 'idle',
           castStartedAt: 0,
           biteDeadline: 0,
@@ -544,6 +648,112 @@ export function useGameState() {
         const next = BOAT_UPGRADES[prev.boatTier + 1];
         if (!next || !prev.permits.boat || prev.currency < next.cost) return prev;
         return { ...prev, currency: prev.currency - next.cost, boatTier: prev.boatTier + 1 };
+      });
+    }, []),
+
+    buyTacklePack: useCallback(() => {
+      setState(prev => {
+        if (prev.currency < TACKLE_PACK_COST) return prev;
+        return { ...prev, currency: prev.currency - TACKLE_PACK_COST, tackle: prev.tackle + TACKLE_PACK_SIZE };
+      });
+    }, []),
+
+    setEquipped: useCallback((type) => {
+      setState(prev => {
+        if (!['bait', 'tackle', 'none'].includes(type)) return prev;
+        if (prev.castPhase !== 'idle') return prev; // don't swap gear mid-cast
+        return { ...prev, equipped: type };
+      });
+    }, []),
+
+    sellLootItem: useCallback((itemId) => {
+      setState(prev => {
+        const item = prev.lootInventory.find(i => i.id === itemId);
+        if (!item || item.locked) return prev;
+        return {
+          ...prev,
+          currency: prev.currency + item.value,
+          totalEarned: prev.totalEarned + item.value,
+          lootInventory: prev.lootInventory.filter(i => i.id !== itemId),
+        };
+      });
+    }, []),
+
+    sellAllLoot: useCallback(() => {
+      setState(prev => {
+        const sellable = prev.lootInventory.filter(i => !i.locked);
+        const earnings = sellable.reduce((s, i) => s + i.value, 0);
+        if (earnings === 0) return prev;
+        return {
+          ...prev,
+          currency: prev.currency + earnings,
+          totalEarned: prev.totalEarned + earnings,
+          lootInventory: prev.lootInventory.filter(i => i.locked),
+        };
+      });
+    }, []),
+
+    toggleLootLock: useCallback((itemId) => {
+      setState(prev => ({
+        ...prev,
+        lootInventory: prev.lootInventory.map(i => i.id === itemId ? { ...i, locked: !i.locked } : i),
+      }));
+    }, []),
+
+    sendLootToMuseum: useCallback((itemId) => {
+      setState(prev => {
+        if (prev.treasureBank.length >= TREASURE_MUSEUM_CAP) return prev;
+        const item = prev.lootInventory.find(i => i.id === itemId);
+        if (!item || item.locked) return prev;
+        return {
+          ...prev,
+          lootInventory: prev.lootInventory.filter(i => i.id !== itemId),
+          treasureBank: [...prev.treasureBank, { ...item, locked: false }],
+        };
+      });
+    }, []),
+
+    sellTreasureBankItem: useCallback((itemId) => {
+      setState(prev => {
+        const item = prev.treasureBank.find(i => i.id === itemId);
+        if (!item || item.locked) return prev;
+        return {
+          ...prev,
+          currency: prev.currency + item.value,
+          totalEarned: prev.totalEarned + item.value,
+          treasureBank: prev.treasureBank.filter(i => i.id !== itemId),
+        };
+      });
+    }, []),
+
+    sendTreasureBankItemToInventory: useCallback((itemId) => {
+      setState(prev => {
+        if (prev.lootInventory.length >= LOOT_INVENTORY_CAP) return prev;
+        const item = prev.treasureBank.find(i => i.id === itemId);
+        if (!item || item.locked) return prev;
+        return {
+          ...prev,
+          treasureBank: prev.treasureBank.filter(i => i.id !== itemId),
+          lootInventory: [...prev.lootInventory, { ...item, locked: false }],
+        };
+      });
+    }, []),
+
+    toggleTreasureBankLock: useCallback((itemId) => {
+      setState(prev => ({
+        ...prev,
+        treasureBank: prev.treasureBank.map(i => i.id === itemId ? { ...i, locked: !i.locked } : i),
+      }));
+    }, []),
+
+    setCharacterName: useCallback((name) => {
+      setState(prev => ({ ...prev, characterName: (name || '').trim().slice(0, 16) || prev.characterName }));
+    }, []),
+
+    setCharacterColor: useCallback((part, hex) => {
+      setState(prev => {
+        if (part !== 'head' && part !== 'body') return prev;
+        return { ...prev, characterColors: { ...prev.characterColors, [part]: hex } };
       });
     }, []),
 

@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, Send, X } from 'lucide-react';
 import { sfx } from '@/lib/soundEffects';
 
-export default function ChatPanel({ multiplayer }) {
-  const { inWorld, chatMessages, sendChatMessage, nickname } = multiplayer;
+export default function ChatPanel({ multiplayer, characterName }) {
+  const { inWorld, chatMessages, sendChatMessage } = multiplayer;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const listRef = useRef(null);
@@ -38,7 +38,7 @@ export default function ChatPanel({ multiplayer }) {
             )}
             {chatMessages.map(m => (
               <div key={m.id} className="text-xs">
-                <span className={`font-semibold ${m.name === nickname ? 'text-cyan-300' : 'text-purple-300'}`}>{m.name}: </span>
+                <span className={`font-semibold ${m.name === characterName ? 'text-cyan-300' : 'text-purple-300'}`}>{m.name}: </span>
                 <span className="text-white/80 break-words">{m.text}</span>
               </div>
             ))}

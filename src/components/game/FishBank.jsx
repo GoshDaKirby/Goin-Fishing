@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Banknote, Building, Coins, TrendingUp, Fish, Lock, Unlock, Check, Users, ArrowLeft } from 'lucide-react';
-import { BANK_UPGRADES, MUSEUM_UPGRADES, MUSEUM_COST, getMuseumIncome } from '@/game/gameConfig';
+import { BANK_UPGRADES, MUSEUM_UPGRADES, MUSEUM_COST, TREASURE_MUSEUM_CAP, getMuseumIncome } from '@/game/gameConfig';
 import { VARIANT_BADGES, RARITY_BADGES, sizeLabel } from '@/game/fishData';
 
 function ReadOnlyFishGrid({ fish }) {
@@ -39,7 +39,9 @@ function ReadOnlyFishGrid({ fish }) {
 }
 
 export default function FishBank({ state, actions, multiplayer, onClose }) {
+  const [tab, setTab] = useState('fish');
   const [confirming, setConfirming] = useState(null); // { id, action }
+  const [confirmingTreasure, setConfirmingTreasure] = useState(null);
   const cap = BANK_UPGRADES[state.bankTier - 1].capacity;
   const nextBank = BANK_UPGRADES[state.bankTier];
   const nextMuseum = MUSEUM_UPGRADES[state.museumTier];
@@ -87,6 +89,12 @@ export default function FishBank({ state, actions, multiplayer, onClose }) {
         <button onClick={onClose} className="text-white/50 hover:text-white p-1"><X size={20} /></button>
       </div>
 
+      <div className="flex gap-2 px-4 pt-3">
+        <button onClick={() => setTab('fish')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === 'fish' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-white/50'}`}>Fish Bank</button>
+        <button onClick={() => setTab('treasure')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === 'treasure' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-white/50'}`}>Treasure Museum</button>
+      </div>
+
+      {tab === 'fish' ? (
       <div className="p-4 space-y-4">
         {/* Stats */}
         <div className="grid grid-cols-2 gap-2">
@@ -248,6 +256,64 @@ export default function FishBank({ state, actions, multiplayer, onClose }) {
           )}
         </div>
       </div>
+      ) : (
+      <div className="p-4 space-y-4">
+        <div className="bg-white/10 rounded-xl p-3">
+          <div className="flex items-center gap-1.5 text-white/50 text-xs mb-1"><Building size={12} /> Items on Display</div>
+          <div className="text-white font-semibold text-lg">{state.treasureBank.length}<span className="text-white/40 text-sm">/{TREASURE_MUSEUM_CAP}</span></div>
+        </div>
+        <p className="text-white/40 text-xs">Treasure and trash go on display here - separate from your fish museum. Coin cases skip this entirely and get deposited straight to your wallet when caught.</p>
+        {state.treasureBank.length === 0 ? (
+          <div className="text-center py-8 text-white/30 text-sm">
+            No items on display yet. Send treasure or trash here from your Loot inventory.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {state.treasureBank.map(item => {
+              const isConfirming = confirmingTreasure?.id === item.id;
+              return (
+                <div key={item.id} className={`rounded-lg p-2 ${item.locked ? 'bg-white/5 opacity-60' : 'bg-white/10'}`}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: item.color + '40', border: `2px solid ${item.color}` }}>
+                      <span className="text-[10px]">{item.kind === 'treasure' ? '💎' : '🗑️'}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-white text-xs font-medium truncate">{item.name}</div>
+                      <span className="text-amber-300 text-[9px] font-semibold">{item.value}</span>
+                    </div>
+                    <button
+                      onClick={() => actions.toggleTreasureBankLock(item.id)}
+                      className={`p-1 rounded transition-colors flex-shrink-0 ${item.locked ? 'text-amber-400' : 'text-white/30 hover:text-white/60'}`}
+                    >
+                      {item.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                    </button>
+                  </div>
+                  {!item.locked && (
+                    isConfirming ? (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => { if (confirmingTreasure.action === 'sell') actions.sellTreasureBankItem(item.id); else actions.sendTreasureBankItemToInventory(item.id); setConfirmingTreasure(null); }}
+                          className="flex-1 flex items-center justify-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-medium py-1 rounded transition-colors"
+                        >
+                          <Check size={10} /> Confirm
+                        </button>
+                        <button onClick={() => setConfirmingTreasure(null)} className="px-2 bg-white/10 text-white/70 text-[10px] py-1 rounded">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1">
+                        <button onClick={() => setConfirmingTreasure({ id: item.id, action: 'sell' })} className="flex-1 bg-amber-600/70 hover:bg-amber-500 text-white text-[10px] py-1 rounded transition-colors">Sell</button>
+                        <button onClick={() => setConfirmingTreasure({ id: item.id, action: 'return' })} className="flex-1 bg-cyan-600/70 hover:bg-cyan-500 text-white text-[10px] py-1 rounded transition-colors">Return</button>
+                      </div>
+                    )
+                  )}
+                  {item.locked && <div className="text-[9px] text-amber-400/60 text-center">Locked</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
     </div>
   );
 }

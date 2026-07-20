@@ -1,11 +1,18 @@
-import { useState } from 'react';
-import { X, Globe, Users, LogOut, MapPin, Fish, Pencil, Check } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Globe, Users, LogOut, MapPin, Fish, RefreshCw } from 'lucide-react';
 
-export default function MultiplayerPanel({ multiplayer, onClose }) {
-  const { nickname, setNickname, worldCode, otherPlayers, inWorld, loading, enterWorld, leaveWorld, isSupabaseConfigured } = multiplayer;
+export default function MultiplayerPanel({ multiplayer, characterName, onClose }) {
+  const {
+    worldCode, otherPlayers, inWorld, loading, enterWorld, leaveWorld,
+    publicWorlds, publicWorldsLoading, listPublicWorlds, isSupabaseConfigured,
+  } = multiplayer;
   const [codeInput, setCodeInput] = useState('');
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState(nickname);
+  const [makePublic, setMakePublic] = useState(false);
+
+  useEffect(() => {
+    if (!inWorld && isSupabaseConfigured) listPublicWorlds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inWorld]);
 
   if (!isSupabaseConfigured) {
     return (
@@ -36,28 +43,12 @@ export default function MultiplayerPanel({ multiplayer, onClose }) {
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Nickname */}
         <div className="bg-white/10 rounded-xl p-3 flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-200 text-xs font-bold flex-shrink-0">
-            {nickname[0]?.toUpperCase()}
+            {characterName[0]?.toUpperCase()}
           </div>
-          {editingName ? (
-            <>
-              <input
-                autoFocus
-                value={nameDraft}
-                onChange={e => setNameDraft(e.target.value)}
-                maxLength={16}
-                className="flex-1 bg-black/30 text-white text-sm rounded-lg px-2 py-1 border border-white/10 outline-none focus:border-purple-400"
-              />
-              <button onClick={() => { setNickname(nameDraft); setEditingName(false); }} className="text-emerald-400 p-1"><Check size={16} /></button>
-            </>
-          ) : (
-            <>
-              <span className="text-white text-sm font-medium flex-1">{nickname}</span>
-              <button onClick={() => { setNameDraft(nickname); setEditingName(true); }} className="text-white/40 hover:text-white p-1"><Pencil size={14} /></button>
-            </>
-          )}
+          <span className="text-white text-sm font-medium flex-1">{characterName}</span>
+          <span className="text-white/30 text-[10px]">Edit in Character</span>
         </div>
 
         {inWorld ? (
@@ -80,7 +71,7 @@ export default function MultiplayerPanel({ multiplayer, onClose }) {
               <div className="space-y-2">
                 <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-2.5 flex items-center gap-2">
                   <div className="w-7 h-7 rounded-full bg-purple-500/30 flex items-center justify-center text-purple-200 text-xs font-bold">You</div>
-                  <span className="text-white text-sm font-medium flex-1">{nickname}</span>
+                  <span className="text-white text-sm font-medium flex-1">{characterName}</span>
                 </div>
                 {otherPlayers.map(p => (
                   <div key={p.id} className="bg-white/10 rounded-lg p-2.5 flex items-center gap-2">
@@ -110,24 +101,58 @@ export default function MultiplayerPanel({ multiplayer, onClose }) {
             </button>
           </>
         ) : (
-          <div className="bg-white/10 rounded-xl p-4 space-y-3">
-            <h3 className="text-white font-semibold text-sm">Join or Host a World</h3>
-            <p className="text-white/50 text-xs">Type any world code. If nobody's using it yet, you're the host - if a friend already made it, you'll join them.</p>
-            <input
-              type="text"
-              value={codeInput}
-              onChange={e => setCodeInput(e.target.value)}
-              placeholder="e.g. sunset-cove"
-              className="w-full bg-black/30 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-purple-400 outline-none"
-            />
-            <button
-              onClick={() => enterWorld(codeInput || 'lobby')}
-              disabled={loading}
-              className="w-full bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"
-            >
-              {loading ? 'Connecting...' : 'Enter World'}
-            </button>
-          </div>
+          <>
+            <div className="bg-white/10 rounded-xl p-4 space-y-3">
+              <h3 className="text-white font-semibold text-sm">Join or Host a World</h3>
+              <p className="text-white/50 text-xs">Type any world code. If nobody's using it yet, you're the host - if a friend already made it, you'll join them.</p>
+              <input
+                type="text"
+                value={codeInput}
+                onChange={e => setCodeInput(e.target.value)}
+                placeholder="e.g. sunset-cove"
+                className="w-full bg-black/30 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-purple-400 outline-none"
+              />
+              <label className="flex items-center gap-2 text-xs text-white/60">
+                <input type="checkbox" checked={makePublic} onChange={e => setMakePublic(e.target.checked)} className="accent-purple-500" />
+                Make this world public (shows up in the list below for anyone to join)
+              </label>
+              <button
+                onClick={() => enterWorld(codeInput || 'lobby', { isPublic: makePublic })}
+                disabled={loading}
+                className="w-full bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                {loading ? 'Connecting...' : 'Enter World'}
+              </button>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-white/60 text-xs font-semibold uppercase tracking-wider">Public Worlds</h3>
+                <button onClick={listPublicWorlds} className="text-white/40 hover:text-white p-1"><RefreshCw size={12} className={publicWorldsLoading ? 'animate-spin' : ''} /></button>
+              </div>
+              {publicWorlds.length === 0 ? (
+                <div className="text-center py-4 text-white/30 text-xs">No public worlds active right now. Be the first to host one!</div>
+              ) : (
+                <div className="space-y-2">
+                  {publicWorlds.map(w => (
+                    <div key={w.code} className="bg-white/10 rounded-lg p-2.5 flex items-center gap-2">
+                      <Globe size={14} className="text-cyan-400 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white text-sm font-medium truncate">{w.code}</div>
+                        <div className="text-white/40 text-[10px]">Hosted by {w.host_name || 'Angler'}</div>
+                      </div>
+                      <button
+                        onClick={() => enterWorld(w.code, { isPublic: true })}
+                        className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        Join
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

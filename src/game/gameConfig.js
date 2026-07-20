@@ -22,6 +22,23 @@ export const CAGE_VALUE_MULT = 1.5;
 export const BAIT_PACK_COST = 50;
 export const BAIT_PACK_SIZE = 10;
 
+// Magnetic tackle: pricier than bait, used for treasure/trash fishing instead of regular fish.
+export const TACKLE_PACK_COST = 250;
+export const TACKLE_PACK_SIZE = 5;
+
+// Character customization presets. Skin tones for the head, muted clothing
+// colors for the body (kept in the same understated palette as the existing
+// multiplayer shirt colors - no neon/overly bright options).
+export const HEAD_COLOR_PRESETS = [
+  '#f2d3b3', '#e8b890', '#d19a6a', '#a9744a', '#7a4f2f', '#4a2f1a',
+];
+export const BODY_COLOR_PRESETS = [
+  '#3a7a9a', '#9a3a7a', '#3a9a6a', '#7a5a9a', '#9a6a3a', '#5a6a7a',
+];
+
+export const LOOT_INVENTORY_CAP = 30;
+export const TREASURE_MUSEUM_CAP = 60;
+
 export const BANK_UPGRADES = [
   { tier: 1, capacity: 20, cost: 0 },
   { tier: 2, capacity: 75, cost: 3000 },
@@ -62,7 +79,7 @@ export const MINIGAME_BASE = {
   boundsSize: 260,      // px, the outer square the fish is constrained to
   zoneSize: 70,         // px, the green catch-zone diameter
   duration: 9000,        // ms, how long the player has to fill the catch meter (after the countdown)
-  countdown: 3000,       // ms, "get ready" pause before the fish/meter start moving at all
+  countdown: 1500,       // ms, "get ready" pause before the fish/meter start moving at all (still counts 3-2-1, just faster)
   // Both fill and drain ramp from slow to fast over the duration of a single
   // catch attempt - everything feels sluggish and forgiving at first (time
   // to get positioned), then speeds up as the clock runs down.

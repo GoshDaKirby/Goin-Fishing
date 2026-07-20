@@ -1,4 +1,4 @@
-import { Coins, Worm, MapPin, Fish, Anchor } from 'lucide-react';
+import { Coins, Worm, MapPin, Fish, Anchor, Magnet } from 'lucide-react';
 import { RODS, LOCATIONS } from '@/game/gameConfig';
 
 export default function TopBar({ state, view, setView }) {
@@ -18,6 +18,12 @@ export default function TopBar({ state, view, setView }) {
               <Worm size={16} className="text-orange-400" />
               <span className="text-white font-semibold text-sm tabular-nums">{state.bait}</span>
             </div>
+            {state.tackle > 0 && (
+              <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
+                <Magnet size={16} className="text-purple-400" />
+                <span className="text-white font-semibold text-sm tabular-nums">{state.tackle}</span>
+              </div>
+            )}
             <div className="hidden sm:flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
               <Fish size={16} className="text-cyan-400" />
               <span className="text-white font-semibold text-sm tabular-nums">{state.caughtInventory.length}/{rod.inventoryCap}</span>

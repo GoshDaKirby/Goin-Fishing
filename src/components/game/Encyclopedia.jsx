@@ -1,7 +1,45 @@
+import { useState } from 'react';
 import { X, BookOpen, Fish } from 'lucide-react';
 import { ALL_SPECIES, VARIANTS, RARITY_BADGES } from '@/game/fishData';
+import { TRASH_ITEMS, TREASURE_ITEMS } from '@/game/lootData';
+
+function LootDexGrid({ items, dex }) {
+  const discovered = items.filter(i => dex[i.id]?.discovered);
+  const undiscovered = items.filter(i => !dex[i.id]?.discovered);
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-white/50">{discovered.length}/{items.length} discovered</div>
+      {discovered.map(item => (
+        <div key={item.id} className="bg-white/10 rounded-xl p-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: item.color + '30', border: `2px solid ${item.color}` }}>
+              <span className="text-sm">{item.isCoinCase ? '🪙' : items === TREASURE_ITEMS ? '💎' : '🗑️'}</span>
+            </div>
+            <div className="flex-1">
+              <span className="text-white font-medium text-sm">{item.name}</span>
+              <div className="text-white/40 text-xs">Found {dex[item.id].timesFound}x · Best: {dex[item.id].biggestValue}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+      {undiscovered.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {undiscovered.map(item => (
+            <div key={item.id} className="bg-white/5 rounded-lg p-2 flex items-center gap-2 opacity-40">
+              <div className="w-8 h-8 rounded-md bg-white/5 border border-white/5 flex items-center justify-center">
+                <span className="text-white/20 text-xs">?</span>
+              </div>
+              <span className="text-white/30 text-xs">???</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Encyclopedia({ state, onClose }) {
+  const [tab, setTab] = useState('fish');
   const discovered = ALL_SPECIES.filter(s => state.encyclopedia[s.id]?.discovered);
   const undiscovered = ALL_SPECIES.filter(s => !state.encyclopedia[s.id]?.discovered);
   const totalVariants = discovered.reduce((sum, s) => {
@@ -18,6 +56,19 @@ export default function Encyclopedia({ state, onClose }) {
         <button onClick={onClose} className="text-white/50 hover:text-white p-1"><X size={20} /></button>
       </div>
 
+      <div className="flex gap-1.5 px-4 pt-3">
+        <button onClick={() => setTab('fish')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${tab === 'fish' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-white/50'}`}>Fish</button>
+        <button onClick={() => setTab('trash')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${tab === 'trash' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-white/50'}`}>Trash</button>
+        <button onClick={() => setTab('treasure')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${tab === 'treasure' ? 'bg-cyan-600 text-white' : 'bg-white/10 text-white/50'}`}>Treasure</button>
+      </div>
+
+      {tab === 'trash' && (
+        <div className="p-4"><LootDexGrid items={TRASH_ITEMS} dex={state.trashDex} /></div>
+      )}
+      {tab === 'treasure' && (
+        <div className="p-4"><LootDexGrid items={TREASURE_ITEMS} dex={state.treasureDex} /></div>
+      )}
+      {tab === 'fish' && (
       <div className="p-4 space-y-3">
         <div className="flex items-center justify-between text-xs text-white/50">
           <span>{discovered.length}/{ALL_SPECIES.length} species discovered</span>
@@ -92,6 +143,7 @@ export default function Encyclopedia({ state, onClose }) {
           <p>Total earned: {state.totalEarned.toLocaleString()}</p>
         </div>
       </div>
+      )}
     </div>
   );
 }

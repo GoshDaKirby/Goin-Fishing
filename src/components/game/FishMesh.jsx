@@ -33,10 +33,10 @@ export function createFishGroup(color, size = 0.5, species = null) {
   return group;
 }
 
-export function createCharacterGroup(shirtColor = 0x3a7a9a) {
+export function createCharacterGroup(shirtColor = 0x3a7a9a, skinColor = 0xe8b890) {
   const group = new THREE.Group();
   const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, flatShading: true });
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe8b890, flatShading: true });
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, flatShading: true });
   const pantsMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, flatShading: true });
   const hatMat = new THREE.MeshStandardMaterial({ color: 0x8b6b3a, flatShading: true });
   const rodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, flatShading: true });
@@ -63,8 +63,8 @@ export function createCharacterGroup(shirtColor = 0x3a7a9a) {
 
   const armGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.5, 4);
   const rightArm = new THREE.Mesh(armGeo, shirtMat);
-  rightArm.position.set(0.28, 0.6, 0);
-  rightArm.rotation.z = -0.4;
+  rightArm.position.set(0, 0.6, 0.28);
+  rightArm.rotation.x = 0.4;
   group.add(rightArm);
 
   const legGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.4, 4);
@@ -77,9 +77,14 @@ export function createCharacterGroup(shirtColor = 0x3a7a9a) {
 
   const rodGeo = new THREE.CylinderGeometry(0.015, 0.02, 1.2, 4);
   const rod = new THREE.Mesh(rodGeo, rodMat);
-  rod.position.set(0.35, 0.7, 0.05);
-  rod.rotation.z = -0.6;
+  rod.position.set(0.05, 0.7, 0.35);
+  rod.rotation.x = 0.6;
   group.add(rod);
+
+  // Exposed so callers can update the character's colors later (e.g. after
+  // a customization change) without rebuilding the whole mesh.
+  group.userData.shirtMat = shirtMat;
+  group.userData.skinMat = skinMat;
 
   return group;
 }

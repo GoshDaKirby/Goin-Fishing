@@ -89,7 +89,7 @@ function createChatBubble(text) {
   return { sprite, texture, material };
 }
 
-export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced, nickname, myId, chatBubbles }) {
+export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced, nickname, headColor, bodyColor, myId, chatBubbles }) {
   const mountRef = useRef(null);
   const spotRef = useRef(null);
   const otherPlayersRef = useRef([]);
@@ -109,6 +109,11 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
   const groundYForBobberRef = useRef(0);
   const spotForBobberRef = useRef(null);
   const bobberStateRef = useRef(null);
+  const characterRef = useRef(null);
+  const headColorRef = useRef(headColor);
+  headColorRef.current = headColor;
+  const bodyColorRef = useRef(bodyColor);
+  bodyColorRef.current = bodyColor;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -254,10 +259,11 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       spotRef.current = { loc: location, spot: spots[idx] };
     }
     const spot = spotRef.current.spot;
-    const character = createCharacterGroup();
+    const character = createCharacterGroup(bodyColorRef.current ? parseInt(bodyColorRef.current.replace('#', ''), 16) : undefined, headColorRef.current ? parseInt(headColorRef.current.replace('#', ''), 16) : undefined);
     character.position.set(spot[0], spot[1], spot[2]);
     character.rotation.y = spot[3];
     scene.add(character);
+    characterRef.current = character;
 
     const groundY = GROUND_Y[location] || 1.65;
     const bounds = WALK_BOUNDS[location] || WALK_BOUNDS.shore;
@@ -456,13 +462,23 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         const p = list[i];
         currentIds.add(p.id);
         if (!otherChars.has(p.id)) {
-          const char = createCharacterGroup(OTHER_SHIRTS[otherChars.size % OTHER_SHIRTS.length]);
+          const shirtColor = p.body_color ? parseInt(p.body_color.replace('#', ''), 16) : OTHER_SHIRTS[otherChars.size % OTHER_SHIRTS.length];
+          const skinColor = p.head_color ? parseInt(p.head_color.replace('#', ''), 16) : undefined;
+          const char = createCharacterGroup(shirtColor, skinColor);
           scene.add(char);
           const label = createNameLabel(p.player_name || 'Player');
           scene.add(label.sprite);
           otherChars.set(p.id, { group: char, sprite: label.sprite, texture: label.texture, material: label.material, firstUpdate: true, targetX: 0, targetZ: 0, targetRot: 0 });
         }
         const entry = otherChars.get(p.id);
+        if (p.body_color && entry.lastBodyColor !== p.body_color) {
+          entry.group.userData.shirtMat?.color.set(p.body_color);
+          entry.lastBodyColor = p.body_color;
+        }
+        if (p.head_color && entry.lastHeadColor !== p.head_color) {
+          entry.group.userData.skinMat?.color.set(p.head_color);
+          entry.lastHeadColor = p.head_color;
+        }
         const px = p.character_x || 0;
         const pz = p.character_z || 0;
         entry.targetX = px;
@@ -525,6 +541,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       disposeObject(character);
+      characterRef.current = null;
       scene.remove(ownLabel.sprite);
       ownLabel.texture.dispose();
       ownLabel.material.dispose();
@@ -600,6 +617,15 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       }
     };
   }, [castPhase]);
+
+  // Live color updates for the local character, without touching position/
+  // movement state or rebuilding the scene.
+  useEffect(() => {
+    const char = characterRef.current;
+    if (!char) return;
+    if (bodyColor && char.userData.shirtMat) char.userData.shirtMat.color.set(bodyColor);
+    if (headColor && char.userData.skinMat) char.userData.skinMat.color.set(headColor);
+  }, [headColor, bodyColor]);
 
   return <div ref={mountRef} className="absolute inset-0" style={{ touchAction: 'none' }} />;
 }
