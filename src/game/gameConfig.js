@@ -35,6 +35,9 @@ export const HEAD_COLOR_PRESETS = [
 export const BODY_COLOR_PRESETS = [
   '#3a7a9a', '#9a3a7a', '#3a9a6a', '#7a5a9a', '#9a6a3a', '#5a6a7a',
 ];
+export const HAT_COLOR_PRESETS = [
+  '#8b6b3a', '#4a4a4a', '#6b3a3a', '#3a5a6b', '#5a6b3a', '#3a3a3a',
+];
 
 export const LOOT_INVENTORY_CAP = 30;
 export const TREASURE_MUSEUM_CAP = 60;

@@ -15,11 +15,20 @@ function slugifyWorld(name) {
 }
 
 function getOrCreateDeviceId() {
+  // Deliberately sessionStorage, not localStorage: this ID is used as the
+  // Supabase Presence key for "who is this player". If it were shared across
+  // browser tabs (as localStorage is), two tabs of the same browser testing
+  // multiplayer together would both present the same key - each tab's
+  // updates would look like "yourself" to the other and get filtered out of
+  // the other-players list, which looks exactly like movement not
+  // syncing (while chat, which isn't filtered by this ID, still works fine).
+  // sessionStorage is per-tab, so each tab/window gets its own identity,
+  // while still surviving a refresh of that same tab.
   try {
-    let id = localStorage.getItem(DEVICE_ID_KEY);
+    let id = sessionStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
       id = randomId();
-      localStorage.setItem(DEVICE_ID_KEY, id);
+      sessionStorage.setItem(DEVICE_ID_KEY, id);
     }
     return id;
   } catch (e) {

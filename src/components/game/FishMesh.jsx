@@ -33,12 +33,12 @@ export function createFishGroup(color, size = 0.5, species = null) {
   return group;
 }
 
-export function createCharacterGroup(shirtColor = 0x3a7a9a, skinColor = 0xe8b890) {
+export function createCharacterGroup(shirtColor = 0x3a7a9a, skinColor = 0xe8b890, hatColor = 0x8b6b3a) {
   const group = new THREE.Group();
   const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, flatShading: true });
   const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, flatShading: true });
   const pantsMat = new THREE.MeshStandardMaterial({ color: 0x3a4a5a, flatShading: true });
-  const hatMat = new THREE.MeshStandardMaterial({ color: 0x8b6b3a, flatShading: true });
+  const hatMat = new THREE.MeshStandardMaterial({ color: hatColor, flatShading: true });
   const rodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, flatShading: true });
 
   const bodyGeo = new THREE.CylinderGeometry(0.22, 0.28, 0.7, 6);
@@ -85,6 +85,7 @@ export function createCharacterGroup(shirtColor = 0x3a7a9a, skinColor = 0xe8b890
   // a customization change) without rebuilding the whole mesh.
   group.userData.shirtMat = shirtMat;
   group.userData.skinMat = skinMat;
+  group.userData.hatMat = hatMat;
 
   return group;
 }

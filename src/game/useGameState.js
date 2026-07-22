@@ -8,7 +8,7 @@ import {
   BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
   STARTING_CURRENCY, STARTING_BAIT, MUSEUM_PAYOUT_INTERVAL,
   MINIGAME_ITEMS, LOOT_INVENTORY_CAP, TREASURE_MUSEUM_CAP,
-  HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS,
+  HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS, HAT_COLOR_PRESETS,
   getMuseumIncome,
 } from './gameConfig';
 
@@ -62,7 +62,7 @@ const initialState = {
   totalCaught: 0,
   autoSettings: defaultAutoSettings,
   characterName: randomDefaultName(),
-  characterColors: { head: HEAD_COLOR_PRESETS[1], body: BODY_COLOR_PRESETS[0] },
+  characterColors: { head: HEAD_COLOR_PRESETS[1], body: BODY_COLOR_PRESETS[0], hat: HAT_COLOR_PRESETS[0] },
 
   // Active fishing minigame state
   castPhase: 'idle', // 'idle' | 'waiting' | 'biting'
@@ -752,7 +752,7 @@ export function useGameState() {
 
     setCharacterColor: useCallback((part, hex) => {
       setState(prev => {
-        if (part !== 'head' && part !== 'body') return prev;
+        if (part !== 'head' && part !== 'body' && part !== 'hat') return prev;
         return { ...prev, characterColors: { ...prev.characterColors, [part]: hex } };
       });
     }, []),

@@ -89,7 +89,7 @@ function createChatBubble(text) {
   return { sprite, texture, material };
 }
 
-export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced, nickname, headColor, bodyColor, myId, chatBubbles }) {
+export default function OceanScene({ location, castPhase, otherPlayers, onCharacterPlaced, nickname, headColor, bodyColor, hatColor, myId, chatBubbles }) {
   const mountRef = useRef(null);
   const spotRef = useRef(null);
   const otherPlayersRef = useRef([]);
@@ -114,6 +114,8 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
   headColorRef.current = headColor;
   const bodyColorRef = useRef(bodyColor);
   bodyColorRef.current = bodyColor;
+  const hatColorRef = useRef(hatColor);
+  hatColorRef.current = hatColor;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -259,7 +261,11 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       spotRef.current = { loc: location, spot: spots[idx] };
     }
     const spot = spotRef.current.spot;
-    const character = createCharacterGroup(bodyColorRef.current ? parseInt(bodyColorRef.current.replace('#', ''), 16) : undefined, headColorRef.current ? parseInt(headColorRef.current.replace('#', ''), 16) : undefined);
+    const character = createCharacterGroup(
+      bodyColorRef.current ? parseInt(bodyColorRef.current.replace('#', ''), 16) : undefined,
+      headColorRef.current ? parseInt(headColorRef.current.replace('#', ''), 16) : undefined,
+      hatColorRef.current ? parseInt(hatColorRef.current.replace('#', ''), 16) : undefined,
+    );
     character.position.set(spot[0], spot[1], spot[2]);
     character.rotation.y = spot[3];
     scene.add(character);
@@ -464,7 +470,8 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         if (!otherChars.has(p.id)) {
           const shirtColor = p.body_color ? parseInt(p.body_color.replace('#', ''), 16) : OTHER_SHIRTS[otherChars.size % OTHER_SHIRTS.length];
           const skinColor = p.head_color ? parseInt(p.head_color.replace('#', ''), 16) : undefined;
-          const char = createCharacterGroup(shirtColor, skinColor);
+          const hatColorVal = p.hat_color ? parseInt(p.hat_color.replace('#', ''), 16) : undefined;
+          const char = createCharacterGroup(shirtColor, skinColor, hatColorVal);
           scene.add(char);
           const label = createNameLabel(p.player_name || 'Player');
           scene.add(label.sprite);
@@ -478,6 +485,10 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         if (p.head_color && entry.lastHeadColor !== p.head_color) {
           entry.group.userData.skinMat?.color.set(p.head_color);
           entry.lastHeadColor = p.head_color;
+        }
+        if (p.hat_color && entry.lastHatColor !== p.hat_color) {
+          entry.group.userData.hatMat?.color.set(p.hat_color);
+          entry.lastHatColor = p.hat_color;
         }
         const px = p.character_x || 0;
         const pz = p.character_z || 0;
@@ -625,7 +636,8 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     if (!char) return;
     if (bodyColor && char.userData.shirtMat) char.userData.shirtMat.color.set(bodyColor);
     if (headColor && char.userData.skinMat) char.userData.skinMat.color.set(headColor);
-  }, [headColor, bodyColor]);
+    if (hatColor && char.userData.hatMat) char.userData.hatMat.color.set(hatColor);
+  }, [headColor, bodyColor, hatColor]);
 
   return <div ref={mountRef} className="absolute inset-0" style={{ touchAction: 'none' }} />;
 }

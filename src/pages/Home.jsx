@@ -13,6 +13,7 @@ import { RODS } from '@/game/gameConfig';
 import { sfx } from '@/lib/soundEffects';
 import OceanScene from '@/components/game/OceanScene';
 import AquariumScene from '@/components/game/AquariumScene';
+import TreasureMuseumScene from '@/components/game/TreasureMuseumScene';
 import TopBar from '@/components/game/TopBar';
 import CaughtInventory from '@/components/game/CaughtInventory';
 import Shop from '@/components/game/Shop';
@@ -26,6 +27,7 @@ export default function Home() {
   const cloudSave = useCloudSave(auth.user, state, actions);
   const multiplayer = useMultiplayer();
   const [view, setView] = useState('fishing');
+  const [museumView, setMuseumView] = useState('aquarium'); // 'aquarium' | 'museum' - which 3D room shows while in the bank/museum view
   const [activePanel, setActivePanel] = useState(null);
   const [catchFlash, setCatchFlash] = useState(null);
   const [incomeFlash, setIncomeFlash] = useState(null);
@@ -121,16 +123,18 @@ export default function Home() {
 
   // Broadcast name/colors to other players whenever they change.
   useEffect(() => {
-    updatePresence({ player_name: state.characterName, head_color: state.characterColors.head, body_color: state.characterColors.body });
+    updatePresence({ player_name: state.characterName, head_color: state.characterColors.head, body_color: state.characterColors.body, hat_color: state.characterColors.hat });
   }, [state.characterName, state.characterColors, updatePresence]);
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-slate-900 select-none">
       {/* 3D Scene */}
       {view === 'fishing' ? (
-        <OceanScene location={state.location} castPhase={state.castPhase} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} nickname={state.characterName} headColor={state.characterColors.head} bodyColor={state.characterColors.body} myId={multiplayer.myId} chatBubbles={chatBubbles} />
-      ) : (
+        <OceanScene location={state.location} castPhase={state.castPhase} otherPlayers={playersInView} onCharacterPlaced={handleCharacterPlaced} nickname={state.characterName} headColor={state.characterColors.head} bodyColor={state.characterColors.body} hatColor={state.characterColors.hat} myId={multiplayer.myId} chatBubbles={chatBubbles} />
+      ) : museumView === 'aquarium' ? (
         <AquariumScene fish={state.fishBank} hasMuseum={state.hasMuseum} museumTier={state.museumTier} />
+      ) : (
+        <TreasureMuseumScene items={state.treasureBank} />
       )}
 
       {/* Top Bar */}
@@ -294,9 +298,23 @@ export default function Home() {
       {/* Bank view label */}
       {view === 'bank' && (
         <>
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
             <div className="bg-black/30 backdrop-blur-md rounded-full px-4 py-1.5 text-white/70 text-xs font-medium">
-              {state.hasMuseum ? '🐟 Fish Museum' : '🐠 Fish Bank'}
+              {museumView === 'aquarium' ? (state.hasMuseum ? '🐟 Fish Museum' : '🐠 Fish Bank') : '🏛️ Treasure Museum'}
+            </div>
+            <div className="flex items-center gap-1 bg-black/30 backdrop-blur-md rounded-full p-1">
+              <button
+                onClick={() => setMuseumView('aquarium')}
+                className={`px-3 py-1 rounded-full text-[11px] font-medium transition-colors ${museumView === 'aquarium' ? 'bg-cyan-500 text-white' : 'text-white/50 hover:text-white'}`}
+              >
+                Aquarium
+              </button>
+              <button
+                onClick={() => setMuseumView('museum')}
+                className={`px-3 py-1 rounded-full text-[11px] font-medium transition-colors ${museumView === 'museum' ? 'bg-amber-500 text-white' : 'text-white/50 hover:text-white'}`}
+              >
+                Museum
+              </button>
             </div>
           </div>
           {!activePanel && (

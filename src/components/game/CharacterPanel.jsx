@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, UserCircle2, Check } from 'lucide-react';
-import { HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS } from '@/game/gameConfig';
+import { HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS, HAT_COLOR_PRESETS } from '@/game/gameConfig';
 
 function ColorRow({ label, presets, value, onChange }) {
   return (
@@ -73,6 +73,12 @@ export default function CharacterPanel({ state, actions, onClose }) {
           presets={BODY_COLOR_PRESETS}
           value={state.characterColors.body}
           onChange={hex => actions.setCharacterColor('body', hex)}
+        />
+        <ColorRow
+          label="Hat Color"
+          presets={HAT_COLOR_PRESETS}
+          value={state.characterColors.hat}
+          onChange={hex => actions.setCharacterColor('hat', hex)}
         />
 
         <p className="text-white/30 text-[10px] pt-2 border-t border-white/10">
