@@ -34,42 +34,26 @@ they'll be baked into the next build.
 
 Copy `.env.example` to `.env.local` and fill in the same two values, then `npm run dev` picks them up.
 
-## 5. Multiplayer + chat: one required policy
+## 5. Multiplayer + chat: nothing extra needed
 
-Player positions/nametags use Supabase Realtime **Presence**, and chat uses Realtime **Broadcast**.
-Both are ephemeral (no database rows are created or need cleanup).
+Player identity/nametags/colors use Supabase Realtime **Presence** (who's here, and their slow-changing
+info). Movement and chat both use Realtime **Broadcast** instead. Both are ephemeral (no database rows
+are created or need cleanup) and work out of the box on a standard project - no RLS policies required for
+this part.
 
-**Important:** Supabase now requires explicit Realtime Authorization (Row Level Security policies on
-`realtime.messages`) for Broadcast and Presence to work reliably on newer projects. Without this, you'll
-see exactly the symptoms of a half-working connection - chat working sometimes, movement not syncing,
-things degrading the longer a session runs. Run this in the SQL Editor:
+If you previously added `realtime.messages` RLS policies or saw guidance here about `private: true`
+channels, that's been reverted. Sending frequent movement updates through Presence's `track()` turned out
+to be the real bug - Supabase's own docs are explicit that calling `track()` rapidly "will flood the
+channel and cause performance problems," and that's exactly what was happening: every step a player took
+sent a fresh presence update, which was degrading chat (sharing the same channel) and occasionally getting
+players dropped from the list on everyone else's screen. Movement now uses Broadcast, which is what
+Supabase recommends for anything high-frequency, and Presence only updates a few times a minute (name,
+colors, location, fishing status) - which is what it's actually meant for.
 
-```sql
--- Since this game never requires signing in to play multiplayer, these
--- policies authorize the anon role (not just authenticated users) to read
--- and send both Broadcast and Presence messages on any topic.
-create policy "anyone can listen to broadcast and presence"
-  on "realtime"."messages"
-  for select
-  to anon, authenticated
-  using (
-    realtime.messages.extension in ('broadcast', 'presence')
-  );
-
-create policy "anyone can send broadcast and presence"
-  on "realtime"."messages"
-  for insert
-  to anon, authenticated
-  with check (
-    realtime.messages.extension in ('broadcast', 'presence')
-  );
-```
-
-The game's code already requests `private: true` channels (required for these policies to actually be
-checked - "public" channels skip RLS entirely). If you'd rather not manage this SQL, the other option is
-**Realtime Settings → "Allow public access"** in the dashboard - turning that on makes public (non-private)
-channels work without any RLS, but the policies above are the more future-proof route and the one this
-game is wired for.
+If you still ever want the extra protection of Realtime Authorization (locking channels down with RLS),
+that's a legitimate thing to add later, but it's not required for this game to work, and there's a known
+compatibility issue between the newer `sb_publishable_...` key format and private/RLS-authorized channels
+- worth knowing if you go that route.
 
 ## 6. Optional cloud save: one table + one policy
 
