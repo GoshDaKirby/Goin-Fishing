@@ -91,11 +91,11 @@ export default function Home() {
 
   // Multiplayer presence
   const playersInView = multiplayer.otherPlayers.filter(p => p.location === state.location);
-  const { updatePresence } = multiplayer;
+  const { updatePresence, updatePosition } = multiplayer;
 
   const handleCharacterPlaced = useCallback((x, z, rot) => {
-    updatePresence({ character_x: x, character_z: z, character_rot: rot });
-  }, [updatePresence]);
+    updatePosition(x, z, rot);
+  }, [updatePosition]);
 
   useEffect(() => {
     updatePresence({ is_fishing: state.castPhase !== 'idle' });
@@ -166,12 +166,14 @@ export default function Home() {
               activePanel === 'multiplayer'
                 ? 'bg-purple-500/80 text-white border-white/20'
                 : multiplayer.inWorld
-                  ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/30'
+                  ? (multiplayer.connectionIssue ? 'bg-amber-500/30 text-amber-200 border-amber-500/30' : 'bg-emerald-500/30 text-emerald-200 border-emerald-500/30')
                   : 'bg-black/40 text-white/60 border-white/10 hover:text-white'
             }`}
           >
             <Globe size={12} />
-            {multiplayer.inWorld ? `${multiplayer.otherPlayers.length + 1} online` : 'World'}
+            {multiplayer.inWorld
+              ? (multiplayer.connectionIssue ? 'Reconnecting...' : `${multiplayer.otherPlayers.length + 1} online`)
+              : 'World'}
           </button>
         </div>
       )}

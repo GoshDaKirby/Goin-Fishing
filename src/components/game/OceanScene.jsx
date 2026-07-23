@@ -26,7 +26,7 @@ const WALK_BOUNDS = {
 };
 const OTHER_SHIRTS = [0x9a3a7a, 0x7a9a3a, 0x3a9a7a, 0x9a7a3a, 0x7a3a9a, 0x3a7a3a];
 const MOVE_SPEED = 3.2;
-const BROADCAST_INTERVAL = 150; // ms
+const BROADCAST_INTERVAL = 350; // ms - deliberately conservative; client-side interpolation smooths the gaps
 
 // Simple deterministic string hash -> picks a stable (not random-every-reload)
 // spawn spot per player id, so players spread out across the available spots
@@ -504,7 +504,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         // rather than only moving when a new update arrives - this is what
         // makes other players look like they're actually walking instead of
         // teleporting between position updates.
-        const lerpFactor = Math.min(1, 8 * dt);
+        const lerpFactor = Math.min(1, 4 * dt);
         entry.group.position.x += (entry.targetX - entry.group.position.x) * lerpFactor;
         entry.group.position.z += (entry.targetZ - entry.group.position.z) * lerpFactor;
         entry.group.rotation.y = entry.targetRot;
