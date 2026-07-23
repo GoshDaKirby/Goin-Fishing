@@ -34,11 +34,42 @@ they'll be baked into the next build.
 
 Copy `.env.example` to `.env.local` and fill in the same two values, then `npm run dev` picks them up.
 
-## 5. Multiplayer + chat: nothing else needed
+## 5. Multiplayer + chat: one required policy
 
 Player positions/nametags use Supabase Realtime **Presence**, and chat uses Realtime **Broadcast**.
-Both are ephemeral (no database rows are created or need cleanup) and are enabled by default on every
-Supabase project. As soon as the two keys above are set, hosting/joining a world and chatting will work.
+Both are ephemeral (no database rows are created or need cleanup).
+
+**Important:** Supabase now requires explicit Realtime Authorization (Row Level Security policies on
+`realtime.messages`) for Broadcast and Presence to work reliably on newer projects. Without this, you'll
+see exactly the symptoms of a half-working connection - chat working sometimes, movement not syncing,
+things degrading the longer a session runs. Run this in the SQL Editor:
+
+```sql
+-- Since this game never requires signing in to play multiplayer, these
+-- policies authorize the anon role (not just authenticated users) to read
+-- and send both Broadcast and Presence messages on any topic.
+create policy "anyone can listen to broadcast and presence"
+  on "realtime"."messages"
+  for select
+  to anon, authenticated
+  using (
+    realtime.messages.extension in ('broadcast', 'presence')
+  );
+
+create policy "anyone can send broadcast and presence"
+  on "realtime"."messages"
+  for insert
+  to anon, authenticated
+  with check (
+    realtime.messages.extension in ('broadcast', 'presence')
+  );
+```
+
+The game's code already requests `private: true` channels (required for these policies to actually be
+checked - "public" channels skip RLS entirely). If you'd rather not manage this SQL, the other option is
+**Realtime Settings → "Allow public access"** in the dashboard - turning that on makes public (non-private)
+channels work without any RLS, but the policies above are the more future-proof route and the one this
+game is wired for.
 
 ## 6. Optional cloud save: one table + one policy
 

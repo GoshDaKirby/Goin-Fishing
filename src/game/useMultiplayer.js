@@ -114,7 +114,7 @@ export function useMultiplayer() {
     if (channelRef.current) await leaveWorld();
 
     const channel = supabase.channel(`world:${code}`, {
-      config: { presence: { key: myIdRef.current }, broadcast: { self: true } },
+      config: { presence: { key: myIdRef.current }, broadcast: { self: true }, private: true },
     });
 
     channel.on('presence', { event: 'sync' }, syncOtherPlayers);
