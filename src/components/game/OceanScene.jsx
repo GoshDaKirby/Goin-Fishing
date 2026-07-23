@@ -58,34 +58,34 @@ function createNameLabel(text) {
 
 function createChatBubble(text) {
   const canvas = document.createElement('canvas');
-  canvas.width = 320;
-  canvas.height = 72;
+  canvas.width = 420;
+  canvas.height = 100;
   const ctx = canvas.getContext('2d');
   const trimmed = text.length > 42 ? text.slice(0, 39) + '...' : text;
-  ctx.font = '22px sans-serif';
+  ctx.font = 'bold 30px sans-serif';
   const metrics = ctx.measureText(trimmed);
-  const boxW = Math.min(300, Math.max(60, metrics.width + 28));
+  const boxW = Math.min(400, Math.max(80, metrics.width + 36));
   const boxX = (canvas.width - boxW) / 2;
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
   ctx.beginPath();
-  ctx.roundRect(boxX, 6, boxW, 44, 12);
+  ctx.roundRect(boxX, 8, boxW, 60, 16);
   ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
   ctx.beginPath();
-  ctx.moveTo(canvas.width / 2 - 8, 50);
-  ctx.lineTo(canvas.width / 2 + 8, 50);
-  ctx.lineTo(canvas.width / 2, 64);
+  ctx.moveTo(canvas.width / 2 - 11, 66);
+  ctx.lineTo(canvas.width / 2 + 11, 66);
+  ctx.lineTo(canvas.width / 2, 86);
   ctx.closePath();
   ctx.fill();
-  ctx.font = '22px sans-serif';
-  ctx.fillStyle = '#1a1a1a';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillStyle = '#161616';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(trimmed, canvas.width / 2, 28);
+  ctx.fillText(trimmed, canvas.width / 2, 38);
   const texture = new THREE.CanvasTexture(canvas);
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.8, 0.4, 1);
+  sprite.scale.set(2.6, 0.62, 1);
   return { sprite, texture, material };
 }
 
@@ -363,7 +363,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
           bubbles.set(id, { ...bubble, text: data.text });
         }
         const b = bubbles.get(id);
-        b.sprite.position.set(position.x, position.y + 0.55, position.z);
+        b.sprite.position.set(position.x, position.y + 0.65, position.z);
       } else if (existing) {
         scene.remove(existing.sprite);
         existing.texture.dispose();

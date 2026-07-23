@@ -4,7 +4,6 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 const DEVICE_ID_KEY = 'goin-fishing-device-id';
 const MAX_CHAT_MESSAGES = 60;
 const PUBLIC_WORLD_ACTIVE_WINDOW_MIN = 3; // worlds not refreshed within this window drop off the public list
-const STALE_POSITION_MS = 15000; // if we haven't heard a 'move' broadcast from someone in this long, stop trusting their last known position
 
 function randomId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -80,20 +79,18 @@ export function useMultiplayer() {
     const channel = channelRef.current;
     if (!channel) return;
     const state = channel.presenceState();
-    const now = Date.now();
     const list = [];
     for (const key of Object.keys(state)) {
       if (key === myIdRef.current) continue;
       const entries = state[key];
       if (!entries || !entries[0]) continue;
       const pos = positionsRef.current[key];
-      const fresh = pos && (now - pos.at) < STALE_POSITION_MS;
       list.push({
         id: key,
         ...entries[0],
-        character_x: fresh ? pos.x : 0,
-        character_z: fresh ? pos.z : 0,
-        character_rot: fresh ? pos.rot : 0,
+        character_x: pos ? pos.x : 0,
+        character_z: pos ? pos.z : 0,
+        character_rot: pos ? pos.rot : 0,
       });
     }
     setOtherPlayers(list);
@@ -281,15 +278,32 @@ export function useMultiplayer() {
       }
     };
     const interval = setInterval(heartbeat, 8000);
-    const handleVisibility = () => { if (document.visibilityState === 'visible') heartbeat(); };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
+    // Phones fully suspend JS (and usually the underlying WebSocket) while
+    // the screen is off/backgrounded. When the tab wakes back up, a plain
+    // track()/resync on a connection that's actually dead does nothing -
+    // this checks whether the channel is really still joined, and if not,
+    // does a full clean rejoin (same as pressing "Enter World" again) rather
+    // than quietly staying disconnected.
+    const handleWake = () => {
+      if (document.visibilityState !== 'visible') return;
+      const channel = channelRef.current;
+      if (!channel || channel.state !== 'joined') {
+        console.log('[multiplayer] reconnecting after wake, channel state was:', channel?.state);
+        if (worldCode) enterWorld(worldCode, { isPublic: isPublicRef.current });
+      } else {
+        heartbeat();
+      }
+    };
+    document.addEventListener('visibilitychange', handleWake);
+    window.addEventListener('focus', handleWake);
+    window.addEventListener('online', handleWake);
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleWake);
+      window.removeEventListener('focus', handleWake);
+      window.removeEventListener('online', handleWake);
     };
-  }, [inWorld, worldCode, rebuildOtherPlayers]);
+  }, [inWorld, worldCode, rebuildOtherPlayers, enterWorld]);
 
   // Clean up on unmount / tab close.
   useEffect(() => {

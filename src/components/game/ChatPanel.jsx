@@ -6,14 +6,25 @@ export default function ChatPanel({ multiplayer, characterName }) {
   const { inWorld, chatMessages, sendChatMessage } = multiplayer;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [hasUnread, setHasUnread] = useState(false);
   const listRef = useRef(null);
   const prevCountRef = useRef(0);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-    if (chatMessages.length > prevCountRef.current && !open) sfx.chat();
+    if (chatMessages.length > prevCountRef.current) {
+      if (!open) {
+        sfx.chat();
+        setHasUnread(true);
+      }
+    }
     prevCountRef.current = chatMessages.length;
   }, [chatMessages, open]);
+
+  const handleOpen = () => {
+    setOpen(true);
+    setHasUnread(false);
+  };
 
   if (!inWorld) return null;
 
@@ -56,11 +67,14 @@ export default function ChatPanel({ multiplayer, characterName }) {
         </div>
       ) : (
         <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-full px-3 py-2 text-white/70 hover:text-white border border-white/10 transition-colors"
+          onClick={handleOpen}
+          className="relative flex items-center gap-1.5 bg-black/40 backdrop-blur-md rounded-full px-3 py-2 text-white/70 hover:text-white border border-white/10 transition-colors"
         >
           <MessageCircle size={14} />
           <span className="text-xs font-medium">Chat</span>
+          {hasUnread && (
+            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 border-2 border-[#0d3d4a] animate-pulse" />
+          )}
         </button>
       )}
     </div>
