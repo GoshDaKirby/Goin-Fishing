@@ -30,23 +30,18 @@ function getOrCreateDeviceId() {
   }
 }
 
-// Multiplayer runs on two different Supabase Realtime mechanisms, used for
-// what they're each actually meant for:
-//
-// - Presence: WHO is in the world and their slow-changing info (name,
-//   colors, current location, whether they're fishing). This only calls
-//   track() when one of those things actually changes - a few times a
-//   minute at most.
-// - Broadcast: WHERE they are. Position updates happen many times a second
-//   while walking, and Supabase's own docs are explicit that Presence
-//   (track()) is the wrong tool for that ("will flood the channel and cause
-//   performance problems... for high-frequency updates, use Broadcast
-//   instead"). Broadcasting movement fixes exactly the symptoms that come
-//   from misusing Presence for it: chat degrading and players seeming to
-//   drop off the list once someone starts moving.
-//
-// Chat also uses Broadcast, on the same channel, and no longer competes with
-// a flood of position-driven track() calls.
+// Multiplayer runs on Supabase Realtime, but track() (Presence) is now only
+// ever called ONCE per connection - at the moment of joining, purely so
+// Presence can tell everyone who's in the room (join/leave/sync). Every
+// later change - movement, name/color edits, location changes, whether
+// you're fishing - goes through Broadcast instead, the same mechanism as
+// chat. This was tightened up in stages (movement first, now everything
+// else) after repeated track() calls turned out to be the actual cause of a
+// recurring bug: calling track() again at the wrong moment could make the
+// *sender's own* inbound message handling seize up, while their outbound
+// sends (like chat) kept working - which matched a report where catching a
+// fish (which used to send a fresh track() for the is_fishing flag) broke
+// the catching player's own view of everyone else, but not vice versa.
 export function useMultiplayer() {
   const [worldCode, setWorldCode] = useState(null);
   const [inWorld, setInWorld] = useState(false);
@@ -61,10 +56,13 @@ export function useMultiplayer() {
 
   const channelRef = useRef(null);
   const myIdRef = useRef(getOrCreateDeviceId());
-  // Slow-changing presence metadata only - no position data in here.
+  // Our own current metadata - sent once via track() at join, and via
+  // 'meta' broadcasts after that for any later change.
   const presenceDataRef = useRef({ player_name: '', location: 'shore', is_fishing: false, head_color: null, body_color: null, hat_color: null });
   // Fast-changing position data, keyed by player id, updated via Broadcast.
-  const positionsRef = useRef({}); // { [id]: { x, z, rot, at } }
+  const positionsRef = useRef({}); // { [id]: { x, z, rot } }
+  // Metadata updates received after someone's initial join, keyed by id.
+  const metaOverridesRef = useRef({}); // { [id]: { player_name, location, is_fishing, head_color, body_color, hat_color } }
   const bankDataRef = useRef({ nickname: '', fishBank: [], hasMuseum: false, museumTier: 1 });
   const isPublicRef = useRef(false);
   const lastSentPositionRef = useRef({ x: null, z: null, rot: null });
@@ -73,8 +71,8 @@ export function useMultiplayer() {
     bankDataRef.current = { ...bankDataRef.current, ...payload };
   }, []);
 
-  // Rebuilds the other-players list from presence (identity/metadata) merged
-  // with the latest known broadcast position for each id.
+  // Rebuilds the other-players list from presence (join/leave membership)
+  // merged with the latest known broadcast metadata and position for each id.
   const rebuildOtherPlayers = useCallback(() => {
     const channel = channelRef.current;
     if (!channel) return;
@@ -85,9 +83,11 @@ export function useMultiplayer() {
       const entries = state[key];
       if (!entries || !entries[0]) continue;
       const pos = positionsRef.current[key];
+      const meta = metaOverridesRef.current[key];
       list.push({
         id: key,
         ...entries[0],
+        ...meta,
         character_x: pos ? pos.x : 0,
         character_z: pos ? pos.z : 0,
         character_rot: pos ? pos.rot : 0,
@@ -105,6 +105,7 @@ export function useMultiplayer() {
     }
     isPublicRef.current = false;
     positionsRef.current = {};
+    metaOverridesRef.current = {};
     setInWorld(false);
     setWorldCode(null);
     setOtherPlayers([]);
@@ -125,15 +126,24 @@ export function useMultiplayer() {
     channel.on('presence', { event: 'sync' }, rebuildOtherPlayers);
     channel.on('presence', { event: 'join' }, rebuildOtherPlayers);
     channel.on('presence', { event: 'leave' }, (payload) => {
-      // Clean up stored position data for anyone who actually left, so a
-      // later rejoin under the same id doesn't briefly show a stale spot.
-      (payload?.leftPresences || []).forEach(p => { delete positionsRef.current[p?.key]; });
+      // Clean up stored position/metadata for anyone who actually left, so
+      // a later rejoin under the same id doesn't briefly show stale info.
+      (payload?.leftPresences || []).forEach(p => {
+        delete positionsRef.current[p?.key];
+        delete metaOverridesRef.current[p?.key];
+      });
       rebuildOtherPlayers();
     });
     channel.on('broadcast', { event: 'move' }, ({ payload }) => {
       if (!payload?.id || payload.id === myIdRef.current) return;
-      positionsRef.current[payload.id] = { x: payload.x, z: payload.z, rot: payload.rot, at: Date.now() };
+      positionsRef.current[payload.id] = { x: payload.x, z: payload.z, rot: payload.rot };
       setOtherPlayers(prev => prev.map(p => (p.id === payload.id ? { ...p, character_x: payload.x, character_z: payload.z, character_rot: payload.rot } : p)));
+    });
+    channel.on('broadcast', { event: 'meta' }, ({ payload }) => {
+      if (!payload?.id || payload.id === myIdRef.current) return;
+      const { id, ...fields } = payload;
+      metaOverridesRef.current[id] = { ...metaOverridesRef.current[id], ...fields };
+      setOtherPlayers(prev => prev.map(p => (p.id === id ? { ...p, ...fields } : p)));
     });
     channel.on('broadcast', { event: 'chat' }, ({ payload }) => {
       setChatMessages(prev => (prev.some(m => m.id === payload.id) ? prev : [...prev.slice(-(MAX_CHAT_MESSAGES - 1)), payload]));
@@ -154,12 +164,11 @@ export function useMultiplayer() {
 
     const handleStatus = async (status, err) => {
       // Log every transition so the real reason is visible in devtools
-      // instead of the connection just silently degrading. If this breaks
-      // again, the browser console during that moment will have the actual
-      // answer instead of another guess.
+      // instead of the connection just silently degrading.
       console.log(`[multiplayer] channel status: ${status}`, err || '');
 
       if (status === 'SUBSCRIBED') {
+        // The ONE and only track() call for this connection.
         await channel.track(presenceDataRef.current);
         setInWorld(true);
         setWorldCode(code);
@@ -177,10 +186,6 @@ export function useMultiplayer() {
         return;
       }
 
-      // Previously, anything other than SUBSCRIBED was silently ignored -
-      // the app had no idea the channel had dropped, which is exactly why
-      // it could look "still in the world" locally while everyone else saw
-      // a leave. Now we flag it and try to recover.
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         setConnectionIssue(true);
         if (channelRef.current === channel) {
@@ -195,15 +200,17 @@ export function useMultiplayer() {
     channelRef.current = channel;
   }, [leaveWorld, rebuildOtherPlayers]);
 
-  // Slow-changing metadata (name, colors, location, is_fishing) - uses
-  // Presence/track() directly, since this changes rarely and is exactly
-  // what Presence is meant for.
+  // Slow-changing metadata (name, colors, location, is_fishing). Broadcasts
+  // a 'meta' event with whatever changed - never calls track() again after
+  // the initial join (see the note at the top of this file for why).
   const updatePresence = useCallback((data) => {
     presenceDataRef.current = { ...presenceDataRef.current, ...data };
-    if (channelRef.current) channelRef.current.track(presenceDataRef.current);
+    if (channelRef.current) {
+      channelRef.current.send({ type: 'broadcast', event: 'meta', payload: { id: myIdRef.current, ...data } });
+    }
   }, []);
 
-  // Fast-changing position - Broadcast, not Presence. Skips sending if the
+  // Fast-changing position - Broadcast. Skips sending if the
   // position/rotation hasn't actually changed since the last send.
   const updatePosition = useCallback((x, z, rot) => {
     const last = lastSentPositionRef.current;
@@ -254,19 +261,14 @@ export function useMultiplayer() {
     return data || [];
   }, []);
 
-  // Defense-in-depth against presence desync: periodically re-track our own
-  // presence (keeps it fresh server-side, and keeps a public world's listing
-  // row from expiring) and force a full resync of the player list, rather
-  // than relying solely on join/leave/sync events. Also force an immediate
-  // resync when the tab regains visibility, since backgrounded mobile tabs
-  // can throttle timers/animation frames enough that events get missed or
-  // feel stale until something forces a fresh look. This is cheap now that
-  // presence data is small and rarely-changing.
+  // Defense-in-depth against desync: periodically force a full resync of the
+  // player list from presence state (cheap, no track() involved), refresh a
+  // public world's listing row if applicable, and check the tab's visibility
+  // to recover from a phone going to sleep.
   useEffect(() => {
     if (!inWorld) return;
-    const heartbeat = () => {
+    const refresh = () => {
       if (!channelRef.current) return;
-      channelRef.current.track(presenceDataRef.current);
       rebuildOtherPlayers();
       if (isPublicRef.current && worldCode) {
         supabase.from('worlds').upsert({
@@ -277,13 +279,12 @@ export function useMultiplayer() {
         }).then(() => {});
       }
     };
-    const interval = setInterval(heartbeat, 8000);
+    const interval = setInterval(refresh, 8000);
     // Phones fully suspend JS (and usually the underlying WebSocket) while
-    // the screen is off/backgrounded. When the tab wakes back up, a plain
-    // track()/resync on a connection that's actually dead does nothing -
-    // this checks whether the channel is really still joined, and if not,
-    // does a full clean rejoin (same as pressing "Enter World" again) rather
-    // than quietly staying disconnected.
+    // the screen is off/backgrounded. When the tab wakes back up, this
+    // checks whether the channel is really still joined, and if not, does a
+    // full clean rejoin (same as pressing "Enter World" again) rather than
+    // quietly staying disconnected.
     const handleWake = () => {
       if (document.visibilityState !== 'visible') return;
       const channel = channelRef.current;
@@ -291,7 +292,7 @@ export function useMultiplayer() {
         console.log('[multiplayer] reconnecting after wake, channel state was:', channel?.state);
         if (worldCode) enterWorld(worldCode, { isPublic: isPublicRef.current });
       } else {
-        heartbeat();
+        refresh();
       }
     };
     document.addEventListener('visibilitychange', handleWake);
