@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, BookOpen, Fish } from 'lucide-react';
+import { X, BookOpen } from 'lucide-react';
 import { ALL_SPECIES, VARIANTS, RARITY_BADGES } from '@/game/fishData';
 import { TRASH_ITEMS, TREASURE_ITEMS } from '@/game/lootData';
 
@@ -13,7 +13,7 @@ function LootDexGrid({ items, dex }) {
         <div key={item.id} className="bg-white/10 rounded-xl p-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: item.color + '30', border: `2px solid ${item.color}` }}>
-              <span className="text-sm">{item.isCoinCase ? '🪙' : items === TREASURE_ITEMS ? '💎' : '🗑️'}</span>
+              <span className="text-sm">{item.emoji || (items === TREASURE_ITEMS ? '💎' : '🗑️')}</span>
             </div>
             <div className="flex-1">
               <span className="text-white font-medium text-sm">{item.name}</span>
@@ -85,7 +85,7 @@ export default function Encyclopedia({ state, onClose }) {
               <div key={species.id} className="bg-white/10 rounded-xl p-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ backgroundColor: species.color + '30', border: `2px solid ${species.color}` }}>
-                    <Fish size={18} style={{ color: species.color }} />
+                    <span className="text-lg">{species.emoji || '🐟'}</span>
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">

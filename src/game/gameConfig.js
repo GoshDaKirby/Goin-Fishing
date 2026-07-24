@@ -41,6 +41,8 @@ export const HAT_COLOR_PRESETS = [
 
 export const LOOT_INVENTORY_CAP = 30;
 export const TREASURE_MUSEUM_CAP = 60;
+// Small chance a bait cast pulls up trash/treasure instead of a fish.
+export const BAIT_LOOT_CHANCE = 0.05;
 
 export const BANK_UPGRADES = [
   { tier: 1, capacity: 20, cost: 0 },
@@ -93,7 +95,10 @@ export const MINIGAME_BASE = {
 };
 
 // Per-rarity fish movement behavior in the minigame: calmer for common fish,
-// increasingly erratic and fast for rarer fish.
+// increasingly erratic and fast for rarer fish. RARITY_ORDER is also used to
+// shift effective difficulty down by rod tier (see FishingMinigame.jsx).
+export const RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+
 export const MINIGAME_RARITY = {
   common: { speed: 120, jitter: 0.15, directionChangeMs: 900 },
   uncommon: { speed: 170, jitter: 0.25, directionChangeMs: 700 },

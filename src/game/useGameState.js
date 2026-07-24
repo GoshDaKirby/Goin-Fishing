@@ -7,7 +7,7 @@ import {
   BAIT_PACK_COST, BAIT_PACK_SIZE, TACKLE_PACK_COST, TACKLE_PACK_SIZE,
   BANK_UPGRADES, MUSEUM_COST, MUSEUM_UPGRADES, BOAT_UPGRADES,
   STARTING_CURRENCY, STARTING_BAIT, MUSEUM_PAYOUT_INTERVAL,
-  MINIGAME_ITEMS, LOOT_INVENTORY_CAP, TREASURE_MUSEUM_CAP,
+  MINIGAME_ITEMS, LOOT_INVENTORY_CAP, TREASURE_MUSEUM_CAP, BAIT_LOOT_CHANCE,
   HEAD_COLOR_PRESETS, BODY_COLOR_PRESETS, HAT_COLOR_PRESETS,
   getMuseumIncome,
 } from './gameConfig';
@@ -223,8 +223,10 @@ export function useGameState() {
         const rod = RODS[prev.rodTier];
 
         if (prev.castEquipped === 'tackle') {
-          const item = rollTackleCatch();
-          return depositLoot({ ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0 }, item);
+          const { type, item } = rollTackleCatch(prev.location, prev.permits);
+          const cleared = { ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0 };
+          if (type === 'fish') return depositCaughtFish(cleared, item, rod);
+          return depositLoot(cleared, item);
         }
 
         if (prev.castEquipped === 'none') {
@@ -234,7 +236,14 @@ export function useGameState() {
           return depositLoot(cleared, result);
         }
 
-        // Normal bait fishing - goes into the manual minigame as before.
+        // Normal bait fishing: overwhelmingly a fish (goes into the manual
+        // minigame as usual), but with a small chance of pulling up trash or
+        // treasure instead, which - like tackle catches - reels straight in
+        // without a minigame.
+        if (Math.random() < BAIT_LOOT_CHANCE) {
+          const item = Math.random() < 0.5 ? rollTrash() : rollTreasure();
+          return depositLoot({ ...prev, castPhase: 'idle', castStartedAt: 0, biteDeadline: 0 }, item);
+        }
         const fish = rollFish(prev.location);
         if (prev.permits.deepwater && prev.location === 'deep') {
           fish.value = Math.round(fish.value * 1.5);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
-import { MINIGAME_BASE, MINIGAME_RARITY, MINIGAME_ITEMS } from '@/game/gameConfig';
+import { MINIGAME_BASE, MINIGAME_RARITY, MINIGAME_ITEMS, RARITY_ORDER } from '@/game/gameConfig';
 import { sfx } from '@/lib/soundEffects';
 
 // A Stardew-Valley-style "keep the fish in the zone" minigame. The green
@@ -8,7 +8,7 @@ import { sfx } from '@/lib/soundEffects';
 // fish wanders on its own, calmer for common fish and increasingly erratic
 // for rarer ones. Filling the meter catches the fish; letting it drain to
 // zero loses it.
-export default function FishingMinigame({ fish, minigameItems, onResolve, onUncast }) {
+export default function FishingMinigame({ fish, minigameItems, rodTier = 0, onResolve, onUncast }) {
   const containerRef = useRef(null);
   const zonePosRef = useRef({ x: 0, y: 0 });
   const fishPosRef = useRef({ x: 0, y: 0 });
@@ -26,7 +26,9 @@ export default function FishingMinigame({ fish, minigameItems, onResolve, onUnca
   const [countdownDisplay, setCountdownDisplay] = useState(3);
 
   const rarity = fish?.rarity || 'common';
-  const rarityCfg = MINIGAME_RARITY[rarity] || MINIGAME_RARITY.common;
+  const rarityIndex = Math.max(0, RARITY_ORDER.indexOf(rarity) - rodTier);
+  const effectiveRarity = RARITY_ORDER[rarityIndex] || 'common';
+  const rarityCfg = MINIGAME_RARITY[effectiveRarity] || MINIGAME_RARITY.common;
 
   const bigZoneTier = minigameItems?.bigZone || 0;
   const calmingTier = minigameItems?.calmingBait || 0;

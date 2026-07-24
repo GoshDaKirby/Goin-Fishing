@@ -183,6 +183,7 @@ export default function Home() {
         <FishingMinigame
           fish={state.currentCatchFish}
           minigameItems={state.minigameItems}
+          rodTier={state.rodTier}
           onResolve={actions.resolveCatch}
           onUncast={actions.uncast}
         />
@@ -196,7 +197,7 @@ export default function Home() {
           )}
           {catchFlash.kind === 'fish' && (
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full" style={{ backgroundColor: catchFlash.fish.color, border: `1px solid ${catchFlash.fish.color}` }} />
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs" style={{ backgroundColor: catchFlash.fish.color, border: `1px solid ${catchFlash.fish.color}` }}>{catchFlash.fish.emoji}</div>
               <span className="text-white text-sm font-medium">Caught a {catchFlash.fish.variantName} {catchFlash.fish.speciesName}!</span>
               <span className="text-amber-300 text-xs">+{catchFlash.fish.value}</span>
             </div>
@@ -210,7 +211,7 @@ export default function Home() {
           )}
           {(catchFlash.kind === 'trash' || catchFlash.kind === 'treasure') && (
             <div className="flex items-center gap-2">
-              <span className="text-lg">{catchFlash.kind === 'treasure' ? '💎' : '🗑️'}</span>
+              <span className="text-lg">{catchFlash.loot.emoji || (catchFlash.kind === 'treasure' ? '💎' : '🗑️')}</span>
               <span className="text-white text-sm font-medium">Found {catchFlash.loot.name}!</span>
               <span className="text-amber-300 text-xs">+{catchFlash.loot.value}</span>
             </div>

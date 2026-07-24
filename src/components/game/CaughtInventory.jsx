@@ -128,7 +128,7 @@ export default function CaughtInventory({ state, actions, onClose }) {
                 }`}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: fish.color + '40', border: `2px solid ${fish.color}` }}>
-                      <span className="text-xs">🐟</span>
+                      <span className="text-sm">{fish.emoji || '🐟'}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -218,7 +218,7 @@ export default function CaughtInventory({ state, actions, onClose }) {
                 }`}>
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: item.color + '40', border: `2px solid ${item.color}` }}>
-                      <span className="text-xs">{item.kind === 'treasure' ? '💎' : '🗑️'}</span>
+                      <span className="text-xs">{item.emoji || (item.kind === 'treasure' ? '💎' : '🗑️')}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">

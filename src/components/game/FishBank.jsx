@@ -21,7 +21,9 @@ function ReadOnlyFishGrid({ fish }) {
         return (
           <div key={f.id} className="bg-white/10 rounded-lg p-2">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-md flex-shrink-0" style={{ backgroundColor: f.color + '40', border: `2px solid ${f.color}` }} />
+              <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: f.color + '40', border: `2px solid ${f.color}` }}>
+                <span className="text-[10px]">{f.emoji || '🐟'}</span>
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="text-white text-xs font-medium truncate">{f.speciesName}</div>
                 <div className="flex items-center gap-0.5 flex-wrap">
@@ -210,7 +212,9 @@ export default function FishBank({ state, actions, multiplayer, onClose }) {
                 return (
                   <div key={fish.id} className={`rounded-lg p-2 ${fish.locked ? 'bg-white/5 opacity-60' : 'bg-white/10'}`}>
                     <div className="flex items-center gap-2 mb-1.5">
-                      <div className="w-7 h-7 rounded-md flex-shrink-0" style={{ backgroundColor: fish.color + '40', border: `2px solid ${fish.color}` }} />
+                      <div className="w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: fish.color + '40', border: `2px solid ${fish.color}` }}>
+                      <span className="text-[10px]">{fish.emoji || '🐟'}</span>
+                    </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-white text-xs font-medium truncate">{fish.speciesName}</div>
                         <div className="flex items-center gap-0.5 flex-wrap">
@@ -275,7 +279,7 @@ export default function FishBank({ state, actions, multiplayer, onClose }) {
                 <div key={item.id} className={`rounded-lg p-2 ${item.locked ? 'bg-white/5 opacity-60' : 'bg-white/10'}`}>
                   <div className="flex items-center gap-2 mb-1.5">
                     <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: item.color + '40', border: `2px solid ${item.color}` }}>
-                      <span className="text-[10px]">{item.kind === 'treasure' ? '💎' : '🗑️'}</span>
+                      <span className="text-[10px]">{item.emoji || (item.kind === 'treasure' ? '💎' : '🗑️')}</span>
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-white text-xs font-medium truncate">{item.name}</div>
