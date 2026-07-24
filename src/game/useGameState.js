@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { rollFish, fishMatchesFilters } from './fishData';
+import { rollFish, fishMatchesFilters, SPECIES_MAP } from './fishData';
 import { rollTrash, rollTreasure, rollTackleCatch, rollEmptyHanded } from './lootData';
 import {
   RODS, PERMITS, CAGE_TRAP_COST, CAGE_TRAP_SLOTS,
@@ -74,6 +74,18 @@ const initialState = {
   autoFishEnabled: false,
 };
 
+// Older saves have caught fish stored from before the per-species emoji
+// field existed, so those specific fish objects are frozen without one and
+// were falling back to a generic 🐟 forever (freshly-caught fish already had
+// it baked in, which is why old and new fish showed differently). This
+// backfills it from the current species data by id.
+function backfillEmoji(fish) {
+  if (!fish) return fish;
+  if (fish.emoji) return fish;
+  const species = SPECIES_MAP[fish.species];
+  return species ? { ...fish, emoji: species.emoji || '🐟' } : fish;
+}
+
 function loadState() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -95,6 +107,9 @@ function loadState() {
         minigameItems: migratedMinigameItems,
         characterColors: { ...initialState.characterColors, ...(parsed.characterColors || {}) },
         equipped: parsed.equipped || 'bait',
+        caughtInventory: (parsed.caughtInventory || []).map(backfillEmoji),
+        fishBank: (parsed.fishBank || []).map(backfillEmoji),
+        cageTraps: (parsed.cageTraps || []).map(t => (t.fish ? { ...t, fish: backfillEmoji(t.fish) } : t)),
         autoSettings: {
           autoSell: { ...defaultAutoSettings.autoSell, ...(parsed.autoSettings?.autoSell || {}), variants: { ...defaultAutoSettings.autoSell.variants, ...(parsed.autoSettings?.autoSell?.variants || {}) }, rarities: { ...defaultAutoSettings.autoSell.rarities, ...(parsed.autoSettings?.autoSell?.rarities || {}) } },
           autoBank: { ...defaultAutoSettings.autoBank, ...(parsed.autoSettings?.autoBank || {}), variants: { ...defaultAutoSettings.autoBank.variants, ...(parsed.autoSettings?.autoBank?.variants || {}) }, rarities: { ...defaultAutoSettings.autoBank.rarities, ...(parsed.autoSettings?.autoBank?.rarities || {}) } },
@@ -781,6 +796,9 @@ export function useGameState() {
         castStartedAt: 0,
         biteDeadline: 0,
         currentCatchFish: null,
+        caughtInventory: (cloudState.caughtInventory || []).map(backfillEmoji),
+        fishBank: (cloudState.fishBank || []).map(backfillEmoji),
+        cageTraps: (cloudState.cageTraps || []).map(t => (t.fish ? { ...t, fish: backfillEmoji(t.fish) } : t)),
       }));
     }, []),
   };

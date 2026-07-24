@@ -148,7 +148,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
 
     const disposables = [];
 
-    const waterGeo = new THREE.PlaneGeometry(200, 200, 25, 25);
+    const waterGeo = new THREE.PlaneGeometry(200, 200, 50, 50);
     waterGeo.rotateX(-Math.PI / 2);
     const waterColors = { shore: 0x3a9aaa, rocks: 0x2a7a8a, deep: 0x1a5a7a };
     const waterMat = new THREE.MeshStandardMaterial({
@@ -388,7 +388,10 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       for (let i = 0; i < positions.length; i += 3) {
         const x = waterOriginal[i];
         const z = waterOriginal[i + 2];
-        positions[i + 1] = Math.sin(x * 0.25 + t * 0.8) * 0.3 + Math.cos(z * 0.2 + t * 0.6) * 0.2;
+        positions[i + 1] =
+          Math.sin(x * 0.055 + t * 0.55) * 0.12 +   // broad primary swell - wide and slow
+          Math.cos(z * 0.045 + t * 0.4) * 0.10 +    // broad secondary swell, different axis/speed so it overlaps the first
+          Math.sin((x + z) * 0.14 + t * 0.9) * 0.05; // smaller, more frequent ripple layered on top for texture
       }
       waterGeo.attributes.position.needsUpdate = true;
       waterGeo.computeVertexNormals();

@@ -255,6 +255,18 @@ export default function Home() {
               </button>
             </div>
           )}
+          {rod.autoRarities.length > 0 && state.castPhase === 'idle' && (
+            <button
+              onClick={actions.toggleAutoFish}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-colors border ${
+                state.autoFishEnabled
+                  ? 'bg-emerald-500 text-white border-emerald-400'
+                  : 'bg-black/30 text-white/70 hover:text-white border-white/10'
+              }`}
+            >
+              <Zap size={12} /> Auto-Cast: {state.autoFishEnabled ? 'On' : 'Off'}
+            </button>
+          )}
           {state.castPhase === 'idle' && (
             <>
               {!canCast && (
