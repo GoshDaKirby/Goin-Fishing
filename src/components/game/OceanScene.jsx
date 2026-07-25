@@ -160,6 +160,47 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     disposables.push(waterGeo, waterMat);
     const waterOriginal = waterGeo.attributes.position.array.slice();
 
+    // Distinct traveling wave-crest bands, layered on top of the general
+    // surface chop. Each is a wide, flat ellipse (most of its length runs
+    // well past the visible play area on both sides) with a lighter,
+    // seafoam-colored outline ellipse just behind it. They drift very
+    // slowly across the water at staggered angles/speeds/z-offsets so they
+    // overlap each other rather than moving in lockstep.
+    const WAVE_BAND_COUNT = 3; // within the requested 2-4 range
+    const waveBands = [];
+    for (let i = 0; i < WAVE_BAND_COUNT; i++) {
+      const lengthX = 55 + Math.random() * 20; // very wide - most of it sits off past the visible water
+      const widthZ = 8 + Math.random() * 5;
+
+      const foamGeo = new THREE.CircleGeometry(1, 28);
+      foamGeo.scale(lengthX * 1.18, widthZ * 1.5, 1);
+      const foamMat = new THREE.MeshBasicMaterial({ color: 0xdff5fa, transparent: true, opacity: 0.32, depthWrite: false });
+      const foamMesh = new THREE.Mesh(foamGeo, foamMat);
+
+      const bodyGeo = new THREE.CircleGeometry(1, 28);
+      bodyGeo.scale(lengthX, widthZ, 1);
+      const bodyMat = new THREE.MeshBasicMaterial({ color: 0x8fd6ea, transparent: true, opacity: 0.24, depthWrite: false });
+      const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+
+      const group = new THREE.Group();
+      group.add(foamMesh);
+      group.add(bodyMesh);
+      group.rotation.x = -Math.PI / 2;
+      group.rotation.z = (Math.random() - 0.5) * 0.5; // slight angle so bands cross rather than run parallel
+      group.position.y = 0.03 + i * 0.008; // stacked just enough to avoid z-fighting between overlapping bands
+      scene.add(group);
+      disposables.push(foamGeo, foamMat, bodyGeo, bodyMat);
+
+      waveBands.push({
+        group,
+        startX: -85 - i * 15,
+        endX: 85 + i * 10,
+        z: -25 + i * 22 + (Math.random() - 0.5) * 12,
+        duration: 75 + Math.random() * 40, // seconds for a full slow crossing
+        progress: Math.random(), // staggered starting phase so they overlap instead of syncing
+      });
+    }
+
     const sunGeo = new THREE.SphereGeometry(3, 8, 8);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xf5e6a0 });
     const sunMesh = new THREE.Mesh(sunGeo, sunMat);
@@ -395,6 +436,13 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       }
       waterGeo.attributes.position.needsUpdate = true;
       waterGeo.computeVertexNormals();
+
+      waveBands.forEach(band => {
+        band.progress += dt / band.duration;
+        if (band.progress > 1) band.progress -= 1;
+        band.group.position.x = band.startX + (band.endX - band.startX) * band.progress;
+        band.group.position.z = band.z;
+      });
 
       decoFish.forEach(fish => {
         const d = fish.userData;
