@@ -156,6 +156,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       flatShading: true, transparent: true, opacity: 0.85,
     });
     const water = new THREE.Mesh(waterGeo, waterMat);
+    water.renderOrder = 0;
     scene.add(water);
     disposables.push(waterGeo, waterMat);
     const waterOriginal = waterGeo.attributes.position.array.slice();
@@ -166,37 +167,40 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     // seafoam-colored outline ellipse just behind it. They drift very
     // slowly across the water at staggered angles/speeds/z-offsets so they
     // overlap each other rather than moving in lockstep.
+    // Wide is explicitly along local X, which after the flattening rotation
+    // below maps straight to world X - the same axis each band travels
+    // along (band.group.position.x is what animates each frame) - so the
+    // long edge of each band always faces the direction it's moving.
     const WAVE_BAND_COUNT = 3; // within the requested 2-4 range
     const waveBands = [];
     for (let i = 0; i < WAVE_BAND_COUNT; i++) {
-      const lengthX = 55 + Math.random() * 20; // very wide - most of it sits off past the visible water
-      const widthZ = 8 + Math.random() * 5;
+      const travelWidth = 40 + Math.random() * 15; // wide along the travel axis, most of it off past the visible water
+      const crossWidth = 12 + Math.random() * 4;   // moderate thickness - a band, not a razor-thin sliver
 
-      const foamGeo = new THREE.CircleGeometry(1, 28);
-      foamGeo.scale(lengthX * 1.18, widthZ * 1.5, 1);
-      const foamMat = new THREE.MeshBasicMaterial({ color: 0xdff5fa, transparent: true, opacity: 0.32, depthWrite: false });
+      const foamGeo = new THREE.PlaneGeometry(travelWidth * 1.15, crossWidth * 1.6);
+      const foamMat = new THREE.MeshBasicMaterial({ color: 0xdff5fa, transparent: true, opacity: 0.4, depthWrite: false, depthTest: false });
       const foamMesh = new THREE.Mesh(foamGeo, foamMat);
+      foamMesh.renderOrder = 1; // draws after the water, before the wave's own fill
 
-      const bodyGeo = new THREE.CircleGeometry(1, 28);
-      bodyGeo.scale(lengthX, widthZ, 1);
-      const bodyMat = new THREE.MeshBasicMaterial({ color: 0x8fd6ea, transparent: true, opacity: 0.24, depthWrite: false });
+      const bodyGeo = new THREE.PlaneGeometry(travelWidth, crossWidth);
+      const bodyMat = new THREE.MeshBasicMaterial({ color: 0x8fd6ea, transparent: true, opacity: 0.26, depthWrite: false, depthTest: false });
       const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+      bodyMesh.renderOrder = 2; // draws last, on top of this wave's own foam trim
 
       const group = new THREE.Group();
       group.add(foamMesh);
       group.add(bodyMesh);
-      group.rotation.x = -Math.PI / 2;
-      group.rotation.z = (Math.random() - 0.5) * 0.5; // slight angle so bands cross rather than run parallel
-      group.position.y = 0.03 + i * 0.008; // stacked just enough to avoid z-fighting between overlapping bands
+      group.rotation.x = -Math.PI / 2; // lay flat - local X stays world X, local Y becomes world Z
+      group.position.y = 0.02;
       scene.add(group);
       disposables.push(foamGeo, foamMat, bodyGeo, bodyMat);
 
       waveBands.push({
         group,
-        startX: -85 - i * 15,
-        endX: 85 + i * 10,
+        startX: -75 - i * 12,
+        endX: 75 + i * 8,
         z: -25 + i * 22 + (Math.random() - 0.5) * 12,
-        duration: 75 + Math.random() * 40, // seconds for a full slow crossing
+        duration: 130 + Math.random() * 60, // seconds for a full very slow crossing
         progress: Math.random(), // staggered starting phase so they overlap instead of syncing
       });
     }
