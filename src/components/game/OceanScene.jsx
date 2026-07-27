@@ -198,47 +198,58 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       disposables.push(dockGeo, dockMat);
 
       // Waves, sized directly off the dock: the dock's short edge (its
-      // width, along X) is 4 units. Each wave is 2-3x that wide, along that
-      // same X axis, with a flat, slightly irregular 6-9 sided outline.
-      // They roll in slowly from open water toward the beach (the shoreline
-      // sits at z=2, where the beach mesh above starts), stopping once
-      // about a quarter of the wave's depth has crossed onto the sand, then
-      // reset back out to sea.
+      // width, along X) is 4 units. Each wave is much wider than that, along
+      // that same X axis (parallel to the shoreline), with a flat, slightly
+      // irregular 6-9 sided outline. They sit right at the shoreline (z=2 is
+      // where the beach mesh above starts) with about a quarter of their
+      // depth resting on the sand, and drift sideways along the shoreline
+      // rather than toward/away from it, looping around when they drift out
+      // of range. Each vertex also wobbles a little over time for a more
+      // natural, less rigid feel.
       const dockShortEdge = 4;
       const shorelineZ = 2;
       const WAVE_COUNT = 2;
       for (let i = 0; i < WAVE_COUNT; i++) {
-        const width = dockShortEdge * (2 + Math.random());       // 2-3x the dock's short edge
-        const depth = width / (3 + Math.random());               // height/depth is ~1/3 to 1/4 of the width
-        const vertCount = 6 + Math.floor(Math.random() * 4);     // 6-9 vertices
-
-        const shape = new THREE.Shape();
+        const width = dockShortEdge * (4 + Math.random() * 2);    // much bigger now: 4-6x the dock's short edge
+        const depth = width / (3 + Math.random());                // depth is ~1/3 to 1/4 of the width
+        const vertCount = 6 + Math.floor(Math.random() * 4);      // 6-9 vertices
+        const baseJitter = [];
+        const phase = [];
         for (let v = 0; v < vertCount; v++) {
-          const angle = (v / vertCount) * Math.PI * 2;
-          const jitter = 0.85 + Math.random() * 0.3; // slight irregularity so it doesn't read as a perfect ellipse
-          const px = (width / 2) * jitter * Math.cos(angle);
-          const py = (depth / 2) * jitter * Math.sin(angle);
-          if (v === 0) shape.moveTo(px, py); else shape.lineTo(px, py);
+          baseJitter.push(0.85 + Math.random() * 0.3);
+          phase.push(Math.random() * Math.PI * 2);
         }
-        shape.closePath();
-        const waveGeo = new THREE.ShapeGeometry(shape);
-        // Same color as the water body itself.
+
+        // A mutable triangle-fan geometry (center + perimeter ring) so each
+        // vertex's radius can be nudged every frame for the wobble effect.
+        const waveGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array((vertCount + 1) * 3);
+        waveGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const indices = [];
+        for (let v = 1; v <= vertCount; v++) {
+          indices.push(0, v, v === vertCount ? 1 : v + 1);
+        }
+        waveGeo.setIndex(indices);
+
         const waveMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false });
         const waveMesh = new THREE.Mesh(waveGeo, waveMat);
-        waveMesh.rotation.x = -Math.PI / 2; // lie flat - local X stays world X (dock's short axis), local Y becomes world Z
+        waveMesh.rotation.x = -Math.PI / 2; // lie flat - local X stays world X (parallel to shore), local Y becomes world Z
         waveMesh.position.y = 0.025;
+        waveMesh.position.z = shorelineZ - depth * 0.25; // fixed distance from shore - ~25% of its depth rests on the sand
         scene.add(waveMesh);
         disposables.push(waveGeo, waveMat);
 
-        const startZ = -45 - i * 10;
-        const endZ = shorelineZ - depth * 0.25; // only ~25% of the wave's depth crosses past the shoreline onto sand
+        const startX = -60 - i * 15;
+        const endX = 60 + i * 15;
         waveBands.push({
           mesh: waveMesh,
-          startZ,
-          endZ,
-          // 10 seconds to cover a distance equal to the dock's short edge (4 units) = 0.4 units/sec.
-          speed: dockShortEdge / 10,
-          z: startZ + (i / WAVE_COUNT) * (endZ - startZ), // stagger starting position so the two don't move in lockstep
+          width, depth, vertCount, baseJitter, phase,
+          startX,
+          endX,
+          // Roughly 10s to cover the dock's short edge (4 units), a bit
+          // faster than that per the latest tweak.
+          speed: (dockShortEdge / 10) * 1.6,
+          x: startX + (i / WAVE_COUNT) * (endX - startX), // stagger starting position so the two don't move in lockstep
         });
       }
 
@@ -444,9 +455,22 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       waterGeo.computeVertexNormals();
 
       waveBands.forEach(band => {
-        band.z += band.speed * dt;
-        if (band.z > band.endZ) band.z = band.startZ;
-        band.mesh.position.z = band.z;
+        band.x += band.speed * dt;
+        if (band.x > band.endX) band.x = band.startX;
+        band.mesh.position.x = band.x;
+
+        const pos = band.mesh.geometry.attributes.position;
+        // Center vertex always stays at local origin.
+        pos.setXYZ(0, 0, 0, 0);
+        for (let v = 0; v < band.vertCount; v++) {
+          const angle = (v / band.vertCount) * Math.PI * 2;
+          const wobble = 1 + 0.08 * Math.sin(t * 0.9 + band.phase[v]);
+          const r = band.baseJitter[v] * wobble;
+          const px = (band.width / 2) * r * Math.cos(angle);
+          const py = (band.depth / 2) * r * Math.sin(angle);
+          pos.setXYZ(v + 1, px, py, 0);
+        }
+        pos.needsUpdate = true;
       });
 
       decoFish.forEach(fish => {
