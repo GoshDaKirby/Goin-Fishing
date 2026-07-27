@@ -181,6 +181,23 @@ export function rollSpecificFish(speciesId, location) {
   return finalizeFish(species, location);
 }
 
+// Rolls only from species within the given rarities (used for auto-fishing,
+// which only ever attempts a rod's unlocked tiers in the first place - so it
+// always succeeds within those tiers rather than rolling freely and
+// rejecting anything above them).
+export function rollFishInRarities(location, allowedRarities) {
+  const pool = (FISH_SPECIES[location] || FISH_SPECIES.shore).filter(f => f.weight > 0 && allowedRarities.includes(f.rarity));
+  if (pool.length === 0) return null;
+  const totalWeight = pool.reduce((s, f) => s + f.weight, 0);
+  let r = Math.random() * totalWeight;
+  let species = pool[0];
+  for (const f of pool) {
+    r -= f.weight;
+    if (r <= 0) { species = f; break; }
+  }
+  return finalizeFish(species, location);
+}
+
 export function sizeLabel(sizeMultiplier) {
   if (sizeMultiplier == null) return null;
   if (sizeMultiplier >= 1.35) return 'Massive';

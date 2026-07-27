@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { rollFish, fishMatchesFilters, SPECIES_MAP } from './fishData';
+import { rollFish, fishMatchesFilters, SPECIES_MAP, rollFishInRarities } from './fishData';
 import { rollTrash, rollTreasure, rollTackleCatch, rollEmptyHanded } from './lootData';
 import {
   RODS, PERMITS, CAGE_TRAP_COST, CAGE_TRAP_SLOTS,
@@ -270,9 +270,10 @@ export function useGameState() {
   }, [state.castPhase, state.biteDeadline]);
 
   // Auto-fish: availability is tied to the current rod tier (RODS[tier].autoRarities),
-  // not a separate purchase. It still rolls a bite each cycle, but only fish
-  // within the rod's supported rarities actually get caught - anything rarer
-  // still requires playing the manual minigame.
+  // not a separate purchase. It only ever rolls within the rarities that
+  // tier actually supports (100% catch rate, no more 'it got away' misses),
+  // requires bait, and automatically stops itself the moment bait runs out
+  // rather than silently sitting idle.
   useEffect(() => {
     const rod = RODS[state.rodTier];
     if (!state.autoFishEnabled || rod.autoRarities.length === 0) return;
@@ -280,17 +281,17 @@ export function useGameState() {
       setState(prev => {
         const currentRod = RODS[prev.rodTier];
         if (!prev.autoFishEnabled || currentRod.autoRarities.length === 0) return prev;
-        if (prev.bait <= 0) return prev;
         if (prev.castPhase !== 'idle') return prev;
-        const fish = rollFish(prev.location);
+        if (prev.bait <= 0) {
+          // Automatically reel in / stop auto-fishing rather than idling forever.
+          return { ...prev, autoFishEnabled: false };
+        }
+        const fish = rollFishInRarities(prev.location, currentRod.autoRarities);
+        if (!fish) return prev;
         if (prev.permits.deepwater && prev.location === 'deep') {
           fish.value = Math.round(fish.value * 1.5);
         }
         const afterBait = { ...prev, bait: prev.bait - 1 };
-        if (!currentRod.autoRarities.includes(fish.rarity)) {
-          // Too good for auto-catch - it gets away.
-          return { ...afterBait, lastCatchTime: Date.now(), lastCaughtFish: null };
-        }
         return depositCaughtFish(afterBait, fish, currentRod);
       });
     }, rod.biteWait);
@@ -468,7 +469,7 @@ export function useGameState() {
       });
     }, []),
 
-    uncast: useCallback(() => {
+    reel: useCallback(() => {
       setState(prev => {
         if (prev.castPhase === 'idle') return prev;
         // Refund the consumed resource only if the fish never actually bit yet.
@@ -513,6 +514,7 @@ export function useGameState() {
     toggleAutoFish: useCallback(() => {
       setState(prev => {
         if (RODS[prev.rodTier].autoRarities.length === 0) return prev;
+        if (!prev.autoFishEnabled && prev.bait <= 0) return prev; // can't turn on with no bait
         return { ...prev, autoFishEnabled: !prev.autoFishEnabled };
       });
     }, []),

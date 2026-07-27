@@ -8,7 +8,7 @@ import { sfx } from '@/lib/soundEffects';
 // fish wanders on its own, calmer for common fish and increasingly erratic
 // for rarer ones. Filling the meter catches the fish; letting it drain to
 // zero loses it.
-export default function FishingMinigame({ fish, minigameItems, rodTier = 0, onResolve, onUncast }) {
+export default function FishingMinigame({ fish, minigameItems, rodTier = 0, onResolve, onReel }) {
   const containerRef = useRef(null);
   const zonePosRef = useRef({ x: 0, y: 0 });
   const fishPosRef = useRef({ x: 0, y: 0 });
@@ -250,7 +250,7 @@ export default function FishingMinigame({ fish, minigameItems, rodTier = 0, onRe
         <div className="flex items-center gap-3">
           <span className="text-white/50 text-xs">Move the green zone over the fish to fill the meter</span>
           <button
-            onClick={onUncast}
+            onClick={onReel}
             className="flex items-center gap-1 bg-red-600/70 hover:bg-red-500 text-white text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
           >
             <X size={12} /> Give up

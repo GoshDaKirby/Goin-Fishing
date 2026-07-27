@@ -185,7 +185,7 @@ export default function Home() {
           minigameItems={state.minigameItems}
           rodTier={state.rodTier}
           onResolve={actions.resolveCatch}
-          onUncast={actions.uncast}
+          onReel={actions.reel}
         />
       )}
 
@@ -293,20 +293,26 @@ export default function Home() {
                 <Waves size={12} className="animate-pulse" /> Waiting for a bite...
               </div>
               <button
-                onClick={actions.uncast}
+                onClick={actions.reel}
                 className="flex items-center gap-1.5 bg-red-600/70 hover:bg-red-500 text-white text-xs font-medium px-4 py-1.5 rounded-full transition-colors"
               >
-                <X size={12} /> Uncast
+                <X size={12} /> Reel
               </button>
             </div>
           )}
         </div>
       )}
       {view === 'fishing' && autoFishActive && (
-        <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10">
+        <div className="absolute bottom-28 sm:bottom-20 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2">
           <div className="bg-emerald-600/70 backdrop-blur-md rounded-full px-4 py-1.5 text-white text-xs font-medium flex items-center gap-1.5">
             <Waves size={12} className="animate-pulse" /> Auto-fishing...
           </div>
+          <button
+            onClick={actions.toggleAutoFish}
+            className="flex items-center gap-1.5 bg-red-600/70 hover:bg-red-500 text-white text-xs font-medium px-4 py-1.5 rounded-full transition-colors"
+          >
+            <X size={12} /> Reel
+          </button>
         </div>
       )}
 

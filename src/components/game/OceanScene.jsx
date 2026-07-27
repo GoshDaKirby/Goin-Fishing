@@ -206,7 +206,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       // A second, slightly larger white strip sharing the same jagged edge
       // sits just behind it as a foam-colored outline along the coast.
       const shoreWidth = 90; // a little wider than the beach (80) so it isn't visibly cut off at the sides
-      const shoreDepth = 6;
+      const shoreDepth = 10;
       const shoreSegments = 48;
       const shoreZ = 2; // matches the beach's near edge
       const vertsPerRow = shoreSegments + 1;
@@ -219,16 +219,18 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
         return geo;
       }
       const foamGeo = buildShoreStrip();
-      const foamMat = new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0.9, depthWrite: false });
+      const foamMat = new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false });
       const foamMesh = new THREE.Mesh(foamGeo, foamMat);
-      foamMesh.position.set(0, 0.24, shoreZ);
+      foamMesh.position.set(0, 0.6, shoreZ);
+      foamMesh.renderOrder = 1;
       scene.add(foamMesh);
       disposables.push(foamGeo, foamMat);
 
       const shoreWaterGeo = buildShoreStrip();
-      const shoreWaterMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false });
+      const shoreWaterMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false });
       const shoreWaterMesh = new THREE.Mesh(shoreWaterGeo, shoreWaterMat);
-      shoreWaterMesh.position.set(0, 0.26, shoreZ);
+      shoreWaterMesh.position.set(0, 0.65, shoreZ);
+      shoreWaterMesh.renderOrder = 2;
       scene.add(shoreWaterMesh);
       disposables.push(shoreWaterGeo, shoreWaterMat);
 
