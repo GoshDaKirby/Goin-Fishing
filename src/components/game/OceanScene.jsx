@@ -197,61 +197,49 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       scene.add(dock);
       disposables.push(dockGeo, dockMat);
 
-      // Waves, sized directly off the dock: the dock's short edge (its
-      // width, along X) is 4 units. Each wave is much wider than that, along
-      // that same X axis (parallel to the shoreline), with a flat, slightly
-      // irregular 6-9 sided outline. They sit right at the shoreline (z=2 is
-      // where the beach mesh above starts) with about a quarter of their
-      // depth resting on the sand, and drift sideways along the shoreline
-      // rather than toward/away from it, looping around when they drift out
-      // of range. Each vertex also wobbles a little over time for a more
-      // natural, less rigid feel.
-      const dockShortEdge = 4;
-      const shorelineZ = 2;
-      const WAVE_COUNT = 2;
-      for (let i = 0; i < WAVE_COUNT; i++) {
-        const width = dockShortEdge * (4 + Math.random() * 2);    // much bigger now: 4-6x the dock's short edge
-        const depth = width / (3 + Math.random());                // depth is ~1/3 to 1/4 of the width
-        const vertCount = 6 + Math.floor(Math.random() * 4);      // 6-9 vertices
-        const baseJitter = [];
-        const phase = [];
-        for (let v = 0; v < vertCount; v++) {
-          baseJitter.push(0.85 + Math.random() * 0.3);
-          phase.push(Math.random() * Math.PI * 2);
-        }
+      // Shoreline: instead of separate objects "swimming" around, the edge
+      // where water meets sand is its own thin strip with many vertices
+      // along it. That edge is displaced by a rough, jagged approximation of
+      // a sine wave (two overlapping waves plus a fixed per-vertex jitter)
+      // that slowly shifts over time, so the boundary looks like it's
+      // gently morphing in and out rather than sitting as a straight line.
+      // A second, slightly larger white strip sharing the same jagged edge
+      // sits just behind it as a foam-colored outline along the coast.
+      const shoreWidth = 90; // a little wider than the beach (80) so it isn't visibly cut off at the sides
+      const shoreDepth = 6;
+      const shoreSegments = 48;
+      const shoreZ = 2; // matches the beach's near edge
+      const vertsPerRow = shoreSegments + 1;
+      const jitter = [];
+      for (let i = 0; i < vertsPerRow; i++) jitter.push(Math.random() * Math.PI * 2);
 
-        // A mutable triangle-fan geometry (center + perimeter ring) so each
-        // vertex's radius can be nudged every frame for the wobble effect.
-        const waveGeo = new THREE.BufferGeometry();
-        const positions = new Float32Array((vertCount + 1) * 3);
-        waveGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        const indices = [];
-        for (let v = 1; v <= vertCount; v++) {
-          indices.push(0, v, v === vertCount ? 1 : v + 1);
-        }
-        waveGeo.setIndex(indices);
-
-        const waveMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false });
-        const waveMesh = new THREE.Mesh(waveGeo, waveMat);
-        waveMesh.rotation.x = -Math.PI / 2; // lie flat - local X stays world X (parallel to shore), local Y becomes world Z
-        waveMesh.position.y = 0.025;
-        waveMesh.position.z = shorelineZ - depth * 0.25; // fixed distance from shore - ~25% of its depth rests on the sand
-        scene.add(waveMesh);
-        disposables.push(waveGeo, waveMat);
-
-        const startX = -60 - i * 15;
-        const endX = 60 + i * 15;
-        waveBands.push({
-          mesh: waveMesh,
-          width, depth, vertCount, baseJitter, phase,
-          startX,
-          endX,
-          // Roughly 10s to cover the dock's short edge (4 units), a bit
-          // faster than that per the latest tweak.
-          speed: (dockShortEdge / 10) * 1.6,
-          x: startX + (i / WAVE_COUNT) * (endX - startX), // stagger starting position so the two don't move in lockstep
-        });
+      function buildShoreStrip() {
+        const geo = new THREE.PlaneGeometry(shoreWidth, shoreDepth, shoreSegments, 1);
+        geo.rotateX(-Math.PI / 2);
+        return geo;
       }
+      const foamGeo = buildShoreStrip();
+      const foamMat = new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0.9, depthWrite: false });
+      const foamMesh = new THREE.Mesh(foamGeo, foamMat);
+      foamMesh.position.set(0, 0.24, shoreZ);
+      scene.add(foamMesh);
+      disposables.push(foamGeo, foamMat);
+
+      const shoreWaterGeo = buildShoreStrip();
+      const shoreWaterMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false });
+      const shoreWaterMesh = new THREE.Mesh(shoreWaterGeo, shoreWaterMat);
+      shoreWaterMesh.position.set(0, 0.26, shoreZ);
+      scene.add(shoreWaterMesh);
+      disposables.push(shoreWaterGeo, shoreWaterMat);
+
+      // The leading (sand-facing) row is whichever row ends up with the
+      // larger world Z after the rotation above - PlaneGeometry's first row
+      // maps there (see the OceanScene comment history for the derivation).
+      const leadingRowStart = 0;
+
+      waveBands.push({
+        foamGeo, shoreWaterGeo, vertsPerRow, jitter, leadingRowStart, shoreDepth,
+      });
 
       for (let z = -7; z <= 9; z += 4) {
         for (const x of [-2, 2]) {
@@ -455,22 +443,22 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       waterGeo.computeVertexNormals();
 
       waveBands.forEach(band => {
-        band.x += band.speed * dt;
-        if (band.x > band.endX) band.x = band.startX;
-        band.mesh.position.x = band.x;
-
-        const pos = band.mesh.geometry.attributes.position;
-        // Center vertex always stays at local origin.
-        pos.setXYZ(0, 0, 0, 0);
-        for (let v = 0; v < band.vertCount; v++) {
-          const angle = (v / band.vertCount) * Math.PI * 2;
-          const wobble = 1 + 0.08 * Math.sin(t * 0.9 + band.phase[v]);
-          const r = band.baseJitter[v] * wobble;
-          const px = (band.width / 2) * r * Math.cos(angle);
-          const py = (band.depth / 2) * r * Math.sin(angle);
-          pos.setXYZ(v + 1, px, py, 0);
+        const { foamGeo, shoreWaterGeo, vertsPerRow, jitter, leadingRowStart, shoreDepth } = band;
+        const foamPos = foamGeo.attributes.position;
+        const waterPos = shoreWaterGeo.attributes.position;
+        for (let i = 0; i < vertsPerRow; i++) {
+          const idx = leadingRowStart + i;
+          const x = waterPos.getX(idx);
+          // Rough, jagged approximation of a sine wave: two overlapping
+          // waves at different frequencies/speeds, plus a fixed per-vertex
+          // jitter offset so it doesn't look like a perfectly clean curve.
+          const jag = 0.9 * Math.sin(x * 0.16 + t * 0.35 + jitter[i])
+                    + 0.5 * Math.sin(x * 0.37 + t * 0.55 + jitter[i] * 1.6);
+          waterPos.setZ(idx, (shoreDepth / 2) + jag);
+          foamPos.setZ(idx, (shoreDepth / 2) + jag + 0.45); // small extra margin so foam peeks past the water edge
         }
-        pos.needsUpdate = true;
+        foamPos.needsUpdate = true;
+        waterPos.needsUpdate = true;
       });
 
       decoFish.forEach(fish => {
