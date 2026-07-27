@@ -161,50 +161,6 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     disposables.push(waterGeo, waterMat);
     const waterOriginal = waterGeo.attributes.position.array.slice();
 
-    // Distinct traveling wave-crest bands, layered on top of the general
-    // surface chop. Each is a wide, flat ellipse (most of its length runs
-    // well past the visible play area on both sides) with a lighter,
-    // seafoam-colored outline ellipse just behind it. They drift very
-    // slowly across the water at staggered angles/speeds/z-offsets so they
-    // overlap each other rather than moving in lockstep.
-    // Wide is explicitly along local X, which after the flattening rotation
-    // below maps straight to world X - the same axis each band travels
-    // along (band.group.position.x is what animates each frame) - so the
-    // long edge of each band always faces the direction it's moving.
-    const WAVE_BAND_COUNT = 3; // within the requested 2-4 range
-    const waveBands = [];
-    for (let i = 0; i < WAVE_BAND_COUNT; i++) {
-      const travelWidth = 40 + Math.random() * 15; // wide along the travel axis, most of it off past the visible water
-      const crossWidth = 12 + Math.random() * 4;   // moderate thickness - a band, not a razor-thin sliver
-
-      const foamGeo = new THREE.PlaneGeometry(travelWidth * 1.15, crossWidth * 1.6);
-      const foamMat = new THREE.MeshBasicMaterial({ color: 0xdff5fa, transparent: true, opacity: 0.4, depthWrite: false, depthTest: false });
-      const foamMesh = new THREE.Mesh(foamGeo, foamMat);
-      foamMesh.renderOrder = 1; // draws after the water, before the wave's own fill
-
-      const bodyGeo = new THREE.PlaneGeometry(travelWidth, crossWidth);
-      const bodyMat = new THREE.MeshBasicMaterial({ color: 0x8fd6ea, transparent: true, opacity: 0.26, depthWrite: false, depthTest: false });
-      const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-      bodyMesh.renderOrder = 2; // draws last, on top of this wave's own foam trim
-
-      const group = new THREE.Group();
-      group.add(foamMesh);
-      group.add(bodyMesh);
-      group.rotation.x = -Math.PI / 2; // lay flat - local X stays world X, local Y becomes world Z
-      group.position.y = 0.02;
-      scene.add(group);
-      disposables.push(foamGeo, foamMat, bodyGeo, bodyMat);
-
-      waveBands.push({
-        group,
-        startX: -75 - i * 12,
-        endX: 75 + i * 8,
-        z: -25 + i * 22 + (Math.random() - 0.5) * 12,
-        duration: 130 + Math.random() * 60, // seconds for a full very slow crossing
-        progress: Math.random(), // staggered starting phase so they overlap instead of syncing
-      });
-    }
-
     const sunGeo = new THREE.SphereGeometry(3, 8, 8);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xf5e6a0 });
     const sunMesh = new THREE.Mesh(sunGeo, sunMat);
@@ -213,6 +169,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     disposables.push(sunGeo, sunMat);
 
     const clouds = [];
+    const waveBands = []; // only populated for 'shore' below - referenced safely in the animate loop either way
     for (let i = 0; i < 5; i++) {
       const cg = new THREE.SphereGeometry(2 + Math.random() * 1.5, 5, 4);
       const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
@@ -239,6 +196,51 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       dock.position.set(0, 1.5, 2);
       scene.add(dock);
       disposables.push(dockGeo, dockMat);
+
+      // Waves, sized directly off the dock: the dock's short edge (its
+      // width, along X) is 4 units. Each wave is 2-3x that wide, along that
+      // same X axis, with a flat, slightly irregular 6-9 sided outline.
+      // They roll in slowly from open water toward the beach (the shoreline
+      // sits at z=2, where the beach mesh above starts), stopping once
+      // about a quarter of the wave's depth has crossed onto the sand, then
+      // reset back out to sea.
+      const dockShortEdge = 4;
+      const shorelineZ = 2;
+      const WAVE_COUNT = 2;
+      for (let i = 0; i < WAVE_COUNT; i++) {
+        const width = dockShortEdge * (2 + Math.random());       // 2-3x the dock's short edge
+        const depth = width / (3 + Math.random());               // height/depth is ~1/3 to 1/4 of the width
+        const vertCount = 6 + Math.floor(Math.random() * 4);     // 6-9 vertices
+
+        const shape = new THREE.Shape();
+        for (let v = 0; v < vertCount; v++) {
+          const angle = (v / vertCount) * Math.PI * 2;
+          const jitter = 0.85 + Math.random() * 0.3; // slight irregularity so it doesn't read as a perfect ellipse
+          const px = (width / 2) * jitter * Math.cos(angle);
+          const py = (depth / 2) * jitter * Math.sin(angle);
+          if (v === 0) shape.moveTo(px, py); else shape.lineTo(px, py);
+        }
+        shape.closePath();
+        const waveGeo = new THREE.ShapeGeometry(shape);
+        // Same color as the water body itself.
+        const waveMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false });
+        const waveMesh = new THREE.Mesh(waveGeo, waveMat);
+        waveMesh.rotation.x = -Math.PI / 2; // lie flat - local X stays world X (dock's short axis), local Y becomes world Z
+        waveMesh.position.y = 0.025;
+        scene.add(waveMesh);
+        disposables.push(waveGeo, waveMat);
+
+        const startZ = -45 - i * 10;
+        const endZ = shorelineZ - depth * 0.25; // only ~25% of the wave's depth crosses past the shoreline onto sand
+        waveBands.push({
+          mesh: waveMesh,
+          startZ,
+          endZ,
+          // 10 seconds to cover a distance equal to the dock's short edge (4 units) = 0.4 units/sec.
+          speed: dockShortEdge / 10,
+          z: startZ + (i / WAVE_COUNT) * (endZ - startZ), // stagger starting position so the two don't move in lockstep
+        });
+      }
 
       for (let z = -7; z <= 9; z += 4) {
         for (const x of [-2, 2]) {
@@ -442,10 +444,9 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       waterGeo.computeVertexNormals();
 
       waveBands.forEach(band => {
-        band.progress += dt / band.duration;
-        if (band.progress > 1) band.progress -= 1;
-        band.group.position.x = band.startX + (band.endX - band.startX) * band.progress;
-        band.group.position.z = band.z;
+        band.z += band.speed * dt;
+        if (band.z > band.endZ) band.z = band.startZ;
+        band.mesh.position.z = band.z;
       });
 
       decoFish.forEach(fish => {
