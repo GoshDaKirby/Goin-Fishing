@@ -159,7 +159,6 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     water.renderOrder = 0;
     scene.add(water);
     disposables.push(waterGeo, waterMat);
-    const waterOriginal = waterGeo.attributes.position.array.slice();
 
     const sunGeo = new THREE.SphereGeometry(3, 8, 8);
     const sunMat = new THREE.MeshBasicMaterial({ color: 0xf5e6a0 });
@@ -169,7 +168,6 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
     disposables.push(sunGeo, sunMat);
 
     const clouds = [];
-    const waveBands = []; // only populated for 'shore' below - referenced safely in the animate loop either way
     for (let i = 0; i < 5; i++) {
       const cg = new THREE.SphereGeometry(2 + Math.random() * 1.5, 5, 4);
       const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
@@ -196,52 +194,6 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       dock.position.set(0, 1.5, 2);
       scene.add(dock);
       disposables.push(dockGeo, dockMat);
-
-      // Shoreline: instead of separate objects "swimming" around, the edge
-      // where water meets sand is its own thin strip with many vertices
-      // along it. That edge is displaced by a rough, jagged approximation of
-      // a sine wave (two overlapping waves plus a fixed per-vertex jitter)
-      // that slowly shifts over time, so the boundary looks like it's
-      // gently morphing in and out rather than sitting as a straight line.
-      // A second, slightly larger white strip sharing the same jagged edge
-      // sits just behind it as a foam-colored outline along the coast.
-      const shoreWidth = 90; // a little wider than the beach (80) so it isn't visibly cut off at the sides
-      const shoreDepth = 20;
-      const shoreSegments = 48;
-      const shoreZ = 2; // matches the beach's near edge
-      const vertsPerRow = shoreSegments + 1;
-      const jitter = [];
-      for (let i = 0; i < vertsPerRow; i++) jitter.push(Math.random() * Math.PI * 2);
-
-      function buildShoreStrip() {
-        const geo = new THREE.PlaneGeometry(shoreWidth, shoreDepth, shoreSegments, 1);
-        geo.rotateX(-Math.PI / 2);
-        return geo;
-      }
-      const foamGeo = buildShoreStrip();
-      const foamMat = new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false });
-      const foamMesh = new THREE.Mesh(foamGeo, foamMat);
-      foamMesh.position.set(0, 0.21, shoreZ);
-      foamMesh.renderOrder = 1;
-      scene.add(foamMesh);
-      disposables.push(foamGeo, foamMat);
-
-      const shoreWaterGeo = buildShoreStrip();
-      const shoreWaterMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false });
-      const shoreWaterMesh = new THREE.Mesh(shoreWaterGeo, shoreWaterMat);
-      shoreWaterMesh.position.set(0, 0.22, shoreZ);
-      shoreWaterMesh.renderOrder = 2;
-      scene.add(shoreWaterMesh);
-      disposables.push(shoreWaterGeo, shoreWaterMat);
-
-      // The leading (sand-facing) row is whichever row ends up with the
-      // larger world Z after the rotation above - PlaneGeometry's first row
-      // maps there (see the OceanScene comment history for the derivation).
-      const leadingRowStart = 0;
-
-      waveBands.push({
-        foamGeo, shoreWaterGeo, vertsPerRow, jitter, leadingRowStart, shoreDepth,
-      });
 
       for (let z = -7; z <= 9; z += 4) {
         for (const x of [-2, 2]) {
@@ -432,36 +384,9 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       const dt = Math.min(0.1, t - lastFrameTime);
       lastFrameTime = t;
 
-      const positions = waterGeo.attributes.position.array;
-      for (let i = 0; i < positions.length; i += 3) {
-        const x = waterOriginal[i];
-        const z = waterOriginal[i + 2];
-        positions[i + 1] =
-          Math.sin(x * 0.055 + t * 0.55) * 0.12 +   // broad primary swell - wide and slow
-          Math.cos(z * 0.045 + t * 0.4) * 0.10 +    // broad secondary swell, different axis/speed so it overlaps the first
-          Math.sin((x + z) * 0.14 + t * 0.9) * 0.05; // smaller, more frequent ripple layered on top for texture
-      }
-      waterGeo.attributes.position.needsUpdate = true;
-      waterGeo.computeVertexNormals();
-
-      waveBands.forEach(band => {
-        const { foamGeo, shoreWaterGeo, vertsPerRow, jitter, leadingRowStart, shoreDepth } = band;
-        const foamPos = foamGeo.attributes.position;
-        const waterPos = shoreWaterGeo.attributes.position;
-        for (let i = 0; i < vertsPerRow; i++) {
-          const idx = leadingRowStart + i;
-          const x = waterPos.getX(idx);
-          // Rough, jagged approximation of a sine wave: two overlapping
-          // waves at different frequencies/speeds, plus a fixed per-vertex
-          // jitter offset so it doesn't look like a perfectly clean curve.
-          const jag = 2.2 * Math.sin(x * 0.16 + t * 0.35 + jitter[i])
-                    + 1.1 * Math.sin(x * 0.37 + t * 0.55 + jitter[i] * 1.6);
-          waterPos.setZ(idx, (shoreDepth / 2) + jag);
-          foamPos.setZ(idx, (shoreDepth / 2) + jag + 1.1); // extra margin so foam peeks past the water edge
-        }
-        foamPos.needsUpdate = true;
-        waterPos.needsUpdate = true;
-      });
+      // Water surface is flat/static for now - both previous wave systems
+      // (the general surface chop and the shoreline wave-strip) have been
+      // removed as a clean slate.
 
       decoFish.forEach(fish => {
         const d = fish.userData;
