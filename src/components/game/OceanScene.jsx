@@ -206,7 +206,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       // A second, slightly larger white strip sharing the same jagged edge
       // sits just behind it as a foam-colored outline along the coast.
       const shoreWidth = 90; // a little wider than the beach (80) so it isn't visibly cut off at the sides
-      const shoreDepth = 10;
+      const shoreDepth = 20;
       const shoreSegments = 48;
       const shoreZ = 2; // matches the beach's near edge
       const vertsPerRow = shoreSegments + 1;
@@ -221,7 +221,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       const foamGeo = buildShoreStrip();
       const foamMat = new THREE.MeshBasicMaterial({ color: 0xf2fbff, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false });
       const foamMesh = new THREE.Mesh(foamGeo, foamMat);
-      foamMesh.position.set(0, 0.6, shoreZ);
+      foamMesh.position.set(0, 0.21, shoreZ);
       foamMesh.renderOrder = 1;
       scene.add(foamMesh);
       disposables.push(foamGeo, foamMat);
@@ -229,7 +229,7 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
       const shoreWaterGeo = buildShoreStrip();
       const shoreWaterMat = new THREE.MeshBasicMaterial({ color: waterColors.shore, transparent: true, opacity: 0.85, depthWrite: false, depthTest: false });
       const shoreWaterMesh = new THREE.Mesh(shoreWaterGeo, shoreWaterMat);
-      shoreWaterMesh.position.set(0, 0.65, shoreZ);
+      shoreWaterMesh.position.set(0, 0.22, shoreZ);
       shoreWaterMesh.renderOrder = 2;
       scene.add(shoreWaterMesh);
       disposables.push(shoreWaterGeo, shoreWaterMat);
@@ -454,10 +454,10 @@ export default function OceanScene({ location, castPhase, otherPlayers, onCharac
           // Rough, jagged approximation of a sine wave: two overlapping
           // waves at different frequencies/speeds, plus a fixed per-vertex
           // jitter offset so it doesn't look like a perfectly clean curve.
-          const jag = 0.9 * Math.sin(x * 0.16 + t * 0.35 + jitter[i])
-                    + 0.5 * Math.sin(x * 0.37 + t * 0.55 + jitter[i] * 1.6);
+          const jag = 2.2 * Math.sin(x * 0.16 + t * 0.35 + jitter[i])
+                    + 1.1 * Math.sin(x * 0.37 + t * 0.55 + jitter[i] * 1.6);
           waterPos.setZ(idx, (shoreDepth / 2) + jag);
-          foamPos.setZ(idx, (shoreDepth / 2) + jag + 0.45); // small extra margin so foam peeks past the water edge
+          foamPos.setZ(idx, (shoreDepth / 2) + jag + 1.1); // extra margin so foam peeks past the water edge
         }
         foamPos.needsUpdate = true;
         waterPos.needsUpdate = true;
